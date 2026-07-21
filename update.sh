@@ -21,9 +21,9 @@ BINARY="puddle"
 
 CMD="${1:-puddle}"
 
-msg()  { printf "\033[1m==>\033[0m %s\n" "$*"; }
-warn() { printf "\033[33mwarn:\033[0m %s\n" "$*" >&2; }
-die()  { printf "\033[31merror:\033[0m %s\n" "$*" >&2; exit 1; }
+msg()  { printf "\033[1;32m✓\033[0m %s\n" "$*"; }
+warn() { printf "\033[1;33m?\033[0m %s\n" "$*" >&2; }
+die()  { printf "\033[1;31m✗\033[0m %s\n" "$*" >&2; exit 1; }
 
 command -v curl >/dev/null 2>&1 || die "curl is required"
 command -v tar  >/dev/null 2>&1 || die "tar is required"
