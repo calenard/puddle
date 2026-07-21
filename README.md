@@ -36,13 +36,13 @@ curl -fsSL https://raw.githubusercontent.com/calenard/puddle/main/install.sh | b
 Detects your OS and architecture, downloads the latest release from GitHub, verifies the SHA-256 against the release's `checksums.txt`, extracts the binary, and drops it in `/usr/local/bin`, `~/.local/bin`, or `~/bin`, whichever is writable first. Pass a version or prefix to pin:
 
 ```bash
-curl -fsSL https://www.puddle.sh/install.sh | bash -s -- v0.0.1 ~/bin
+curl -fsSL https://raw.githubusercontent.com/calenard/puddle/main/install.sh | bash -s -- v0.0.1 ~/bin
 ```
 
 ### One-liner (Windows, PowerShell)
 
 ```powershell
-iwr -useb https://www.puddle.sh/install.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/calenard/puddle/main/install.ps1 | iex
 ```
 
 Drops `puddle.exe` into `$HOME\bin` and adds it to the user PATH if missing. Open a fresh terminal afterwards.
