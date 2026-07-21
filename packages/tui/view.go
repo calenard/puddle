@@ -1,0 +1,2639 @@
+package tui
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"regexp"
+	"strconv"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/mattn/go-runewidth"
+	"github.com/puddle-dev/puddle/packages/provider"
+)
+
+// expandTabs replaces tab characters with 4 spaces so code from
+// tab-indented languages (Go, Makefiles, etc.) renders at a
+// consistent width instead of the terminal's default 8-column tabs.
+func expandTabs(s string) string {
+	return strings.ReplaceAll(s, "\t", "    ")
+}
+
+// sanitizeUserBubbleLine prepares a single user-bubble row for safe
+// rendering. Pasted content from another terminal can contain
+// embedded ANSI escape sequences, control bytes, and tabs that
+// either reset the bubble's background colour or move the cursor in
+// ways that break the bubble's painted column.
+func sanitizeUserBubbleLine(s string) string {
+	if s == "" {
+		return s
+	}
+	s = expandTabs(s)
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); {
+		c := s[i]
+		if c == 0x1b { // ESC: drop CSI/OSC/DCS and simple escapes.
+			i = skipEscapeSequence(s, i)
+			continue
+		}
+		if c == '\r' || c == '\b' || c == 0x07 {
+			i++
+			continue
+		}
+		if c < 0x20 || c == 0x7f {
+			i++
+			continue
+		}
+		b.WriteByte(c)
+		i++
+	}
+	return b.String()
+}
+
+// pathFromToolArgs returns the "path" argument from a tool_call's
+// JSON arguments, or "" if the args aren't a JSON object or don't
+// include one. Used to pick a syntax language for rendering the
+// corresponding tool_result.
+func pathFromToolArgs(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return ""
+	}
+	for _, k := range []string{"path", "file_path"} {
+		if s, ok := m[k].(string); ok && s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+// offsetFromToolArgs returns the read tool's 1-indexed `offset`
+// arg (the first line of the slice the tool was asked to return),
+// or 0 when the call didn't specify one. Used by the tui to draw
+// the line-number gutter aligned to the right starting row, even
+// though the tool's text content itself no longer carries line
+// numbers.
+func offsetFromToolArgs(raw json.RawMessage) int {
+	if len(raw) == 0 {
+		return 0
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return 0
+	}
+	switch v := m["offset"].(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	}
+	return 0
+}
+
+// osUserHomeDir is aliased so the test file can swap it.
+var osUserHomeDir = os.UserHomeDir
+
+// View turns a transcript + live state into a slice of styled lines,
+// already wrapped to width.
+type View struct {
+	Theme      Theme
+	ImageProto ImageProtocol // how to render inline images in this terminal
+	Messages   []provider.Message
+	// toolPaths maps tool_use_id to the "path" argument of the call, if
+	// any, so tool_result rendering can pick the right syntax language.
+	// Rebuilt on each Build().
+	toolPaths map[string]string
+	// toolStartLines maps tool_use_id to the 1-indexed first line
+	// number of a `read` result, pulled from the call's offset arg.
+	// Used by renderNumberedFile to draw a line-number gutter over
+	// raw (unnumbered) file content the model receives. Rebuilt on
+	// each Build().
+	toolStartLines map[string]int
+	// toolCallLabels maps tool_use_id to the box label (tool name +
+	// short args) for the call, so a tool_result message can render
+	// the box top edge without having to look back at the assistant
+	// message that originated the call. Rebuilt on each Build().
+	toolCallLabels  map[string]string
+	Streaming       string // current assistant text delta
+	StreamingActive bool
+	ToolCalls       []ToolCallView // tool calls in flight or completed
+	StatusLine      string
+	Err             string
+
+	// liveBodyHigh tracks the tallest live-preview body height seen
+	// per tool-call id, so a streaming edit/write/bash box never
+	// shrinks mid-stream. Keyed by ToolCallView.ID. Entries are only
+	// consulted while a call has no Result; interactive mode prunes
+	// the map when a turn ends.
+	liveBodyHigh map[string]int
+
+	// FlatTools renders tool calls without the bordered panel: a quiet
+	// header line per call plus indented, frameless output. The
+	// truncation/expand behaviour and theme colors are unchanged.
+	// False (the default) keeps the bordered box.
+	FlatTools bool
+
+	// CompactUser renders sent user messages as a single quiet gutter
+	// line per wrapped row instead of a tinted bubble with a blank
+	// padding row above and below. False (the default) keeps the
+	// padded, background-tinted bubble.
+	CompactUser bool
+
+	// CompactMode reduces visual chrome in the transcript. Tool calls
+	// render with a flat header and no bordered panel, and sent user
+	// messages render without padded background bubbles. False keeps
+	// the current spacious rendering.
+	CompactMode bool
+
+	// ExpandAll forces every long tool result to render in full.
+	// Toggled from the tui by ctrl+o. When false, results longer than
+	// ToolCollapseLines collapse to ToolCollapsePreview lines plus a
+	// "... (N more lines, M total, ctrl+o to expand)" footer.
+	ExpandAll bool
+
+	// renderCache holds the per-message rendered line slices so Build
+	// doesn't re-markdown every message on every frame. Keyed by a
+	// struct of (content hash, width, expandAll) — any of those
+	// changing invalidates the entry. Messages are append-only after
+	// they finalise so keeping the cache across turns is safe.
+	//
+	// Streaming/in-flight work (v.Streaming, v.ToolCalls) is never
+	// cached because it changes every delta.
+	renderCache map[msgCacheKey][]string
+
+	// TailLimit caps how many messages from the END of Messages are
+	// rendered. Messages older than the limit emit a zero-row slice
+	// so first paint after a session resume doesn't pay the markdown
+	// / chroma cost for the entire transcript at once. 0 means no
+	// limit (render everything, the historical behaviour). Interactive
+	// raises the cap when the user scrolls past the top of the
+	// already-rendered tail.
+	TailLimit int
+}
+
+// msgCacheKey identifies a cached message render. hash is a 64-bit
+// FNV-1a of the message's content, which is cheap to compute and
+// unambiguous enough for the cache (collisions produce a stale frame,
+// not wrong data, and we recompute on invalidation anyway).
+type msgCacheKey struct {
+	hash      uint64
+	width     int
+	expandAll bool
+	// turnOpen is true when the previous rendered message belongs to
+	// the same agent turn (assistant tool_use, or tool result). The
+	// header ("▍ puddle") is suppressed in that case so a single turn
+	// — even one that spans many assistant/tool message round-trips
+	// in the underlying API — renders under one header instead of a
+	// new one per assistant message.
+	turnOpen bool
+}
+
+// InvalidateRenderCache drops all cached message renders. The tui
+// calls this when the transcript is replaced wholesale (/compact,
+// /clear, session swap) since messages can be replaced in place and
+// a content-hash miss alone doesn't reclaim the old entries.
+func (v *View) InvalidateRenderCache() {
+	v.renderCache = nil
+}
+
+// ToolCollapsePreview is the number of lines shown before a long tool
+// result is replaced with a "... ctrl+o to expand" footer. Tool
+// results shorter than ToolCollapseLines always render in full.
+const (
+	ToolCollapsePreview = 10
+	ToolCollapseLines   = 12
+)
+
+// ToolCallView is a pending tool invocation plus optional result.
+type ToolCallView struct {
+	ID     string
+	Name   string
+	Args   string // rendered argument summary
+	Result string // rendered result preview (truncated)
+	Error  bool
+	Done   bool
+
+	// Streaming is true while the model is still typing the tool
+	// call's JSON arguments. The TUI renders a live preview of any
+	// interesting string fields (for `write`, the `content`; for
+	// `bash`, the `command`) so the user can watch the file being
+	// composed. Set to false as soon as EvToolUseEnd arrives.
+	Streaming bool
+
+	// RawJSONBuf is the accumulator of every EvToolUseArgs delta
+	// the stream has delivered for this tool call. Used by the
+	// partial-JSON extractor to peel off the live string value
+	// of one named field on each render.
+	RawJSONBuf string
+
+	// LivePath is the `path` arg extracted as soon as it parses
+	// out of RawJSONBuf. Shown next to the tool name in the header
+	// so the user can see which file is being written to.
+	LivePath string
+}
+
+// MessageAnchor records where a rendered message starts in the chat
+// line slice. Used by /jump so the dialog can scroll the viewport to
+// the row where a turn's user prompt begins.
+type MessageAnchor struct {
+	MessageIdx int // index into v.Messages
+	Row        int // first row of that message in the Build() output
+}
+
+// Build returns the chat log lines for the given width.
+func (v *View) Build(width int) []string {
+	lines, _ := v.BuildWithAnchors(width)
+	return lines
+}
+
+// BuildLive renders only in-flight assistant/tool/error state. Main-screen
+// scrollback renderers can keep these rows outside the immutable transcript
+// so native scrolling stays stable while a turn streams.
+func (v *View) BuildLive(width int) []string {
+	var out []string
+	if v.StreamingActive && strings.TrimSpace(v.Streaming) != "" {
+		const indent = "  "
+		inner := assistantBodyWidth(width - len(indent))
+		md := RenderMarkdown(v.Streaming, v.Theme, inner)
+		for _, l := range strings.Split(md, "\n") {
+			for _, w := range wrapANSILine(l, inner) {
+				out = append(out, indent+w)
+			}
+		}
+		// out = append(out, "")
+	}
+	finalised := map[string]bool{}
+	for _, m := range v.Messages {
+		for _, c := range m.Content {
+			if b, ok := c.(provider.ToolResultBlock); ok {
+				finalised[b.CallID] = true
+			}
+		}
+	}
+	insertedToolGap := false
+	for _, tc := range v.ToolCalls {
+		if finalised[tc.ID] {
+			continue
+		}
+		if !insertedToolGap && len(out) > 0 {
+			out = append(out, "")
+		}
+		insertedToolGap = true
+		out = append(out, v.renderToolCall(tc, width)...)
+	}
+	if v.Err != "" {
+		out = append(out, v.renderErr(width)...)
+		// out = append(out, "")
+	}
+	return out
+}
+
+// renderErr formats v.Err into one or more colored rows, word-wrapped
+// to width so long provider error messages (e.g. a Bedrock 400 with an
+// embedded JSON body) aren't cut off at the terminal edge. The first
+// row carries the "✖ " marker; continuation rows align under the text
+// with a two-cell indent.
+func (v *View) renderErr(width int) []string {
+	const marker = "✖ "
+	const indent = "  "
+	wrapWidth := width - len([]rune(marker))
+	if wrapWidth < 8 {
+		wrapWidth = 8
+	}
+	wrapped := wrapLine(v.Err, wrapWidth, "")
+	if len(wrapped) == 0 {
+		wrapped = []string{""}
+	}
+	out := make([]string, 0, len(wrapped))
+	for idx, line := range wrapped {
+		prefix := marker
+		if idx > 0 {
+			prefix = indent
+		}
+		out = append(out, v.Theme.FG256(v.Theme.Error, prefix+line))
+	}
+	return out
+}
+
+// BuildWithAnchors is like Build but additionally reports the first
+// row occupied by each message in v.Messages. Callers that need to
+// scroll to a specific turn (the /jump dialog) use the anchor slice
+// to map a message index back to a row offset.
+func (v *View) BuildWithAnchors(width int) ([]string, []MessageAnchor) {
+	v.refreshToolPaths()
+	if v.renderCache == nil {
+		v.renderCache = make(map[msgCacheKey][]string)
+	}
+	if v.liveBodyHigh == nil {
+		v.liveBodyHigh = make(map[string]int)
+	}
+	// Drop high-water entries for calls that are gone or finalised so
+	// the reservation never leaks into a later, shorter tool box.
+	if len(v.liveBodyHigh) > 0 {
+		active := make(map[string]bool, len(v.ToolCalls))
+		for _, tc := range v.ToolCalls {
+			if tc.Result == "" {
+				active[tc.ID] = true
+			}
+		}
+		for id := range v.liveBodyHigh {
+			if !active[id] {
+				delete(v.liveBodyHigh, id)
+			}
+		}
+	}
+
+	// Pre-render every message (hits the cache for unchanged ones) so
+	// we can allocate `out` in a single shot with the exact capacity.
+	// Growing via append on a long transcript copies the backing array
+	// log2(N) times; for a 2000-line scrollback that's enough memcpy
+	// to visibly stutter while typing.
+	rendered := make([][]string, len(v.Messages))
+	total := 0
+	// renderFrom is the first index we actually render. Anything
+	// below it emits a zero-row placeholder; the message still gets
+	// an anchor entry so /jump and scroll math keep working, and a
+	// later Build with a higher TailLimit fills the gap.
+	renderFrom := 0
+	if v.TailLimit > 0 && len(v.Messages) > v.TailLimit {
+		renderFrom = len(v.Messages) - v.TailLimit
+	}
+	for idx, m := range v.Messages {
+		if idx < renderFrom {
+			rendered[idx] = nil
+			continue
+		}
+		// A turn is "open" once the assistant has started responding
+		// to the most recent user prompt. Walk back over consecutive
+		// assistant/tool messages: if any non-user message precedes
+		// this one without a user message in between, we're inside
+		// the same turn and should not draw a new "▍ puddle" header.
+		turnOpen := false
+		if m.Role == provider.RoleAssistant {
+			for j := idx - 1; j >= 0; j-- {
+				prev := v.Messages[j]
+				// Skip compaction summary messages — they're
+				// rendered as a muted footer line (or hidden
+				// entirely when collapsed) and don't open a turn.
+				if prev.Meta["compaction"] == "true" {
+					continue
+				}
+				if prev.Role == provider.RoleAssistant || prev.Role == provider.RoleTool {
+					turnOpen = true
+				}
+				break
+			}
+		}
+		lines := v.renderMessageCached(m, width, turnOpen)
+		rendered[idx] = lines
+		total += len(lines) + 1 // +1 for the blank separator row
+	}
+
+	out := make([]string, 0, total+16)
+	anchors := make([]MessageAnchor, 0, len(v.Messages))
+	for idx := range v.Messages {
+		anchors = append(anchors, MessageAnchor{MessageIdx: idx, Row: len(out)})
+		out = append(out, rendered[idx]...)
+		// Skip the inter-message blank for messages that rendered
+		// to nothing. An assistant message whose only content is
+		// ToolCallBlock(s) has no rendered output of its own (each
+		// tool result owns its box now), so emitting a blank for it
+		// would compound with the blank from the next real message
+		// and produce two blank rows between adjacent tool boxes.
+		if len(rendered[idx]) == 0 {
+			continue
+		}
+		out = append(out, "")
+	}
+	// Only render the streaming header/body when there's actual
+	// text to show. An empty streaming block (streamOn=true,
+	// Streaming="") appears when a turn starts with a tool_use
+	// block instead of text — in that case the live tool-call
+	// overlay below is the real content and a naked "puddle" bar
+	// above it reads as a stray empty message.
+	if v.StreamingActive && strings.TrimSpace(v.Streaming) != "" {
+		// Stream the partial assistant text through the same markdown
+		// renderer used for finalised messages so code fences, diffs,
+		// lists, and inline styles look the same while streaming and
+		// don't suddenly reflow when the turn ends. No speaker header
+		// is drawn; the indent matches the finalised assistant body in
+		// renderMessage so the column stays consistent across the
+		// stream/finalise transition. Width is capped so ultra-wide
+		// terminals don't produce edge-to-edge code-fence rules or
+		// unreadably long prose lines.
+		const indent = "  "
+		inner := assistantBodyWidth(width - len(indent))
+		md := RenderMarkdown(v.Streaming, v.Theme, inner)
+		for _, l := range strings.Split(md, "\n") {
+			for _, w := range wrapANSILine(l, inner) {
+				out = append(out, indent+w)
+			}
+		}
+		out = append(out, "")
+	}
+	// Live tool-call overlay: keep the in-flight box visible after
+	// the assistant tool_use is appended, then hide it only when the
+	// matching tool_result reaches the transcript. Assistant tool_use
+	// blocks render no rows of their own, so suppressing the overlay
+	// at that point makes the box disappear while the tool is running.
+	finalised := map[string]bool{}
+	for _, m := range v.Messages {
+		for _, c := range m.Content {
+			if b, ok := c.(provider.ToolResultBlock); ok {
+				finalised[b.CallID] = true
+			}
+		}
+	}
+	for _, tc := range v.ToolCalls {
+		if finalised[tc.ID] {
+			continue
+		}
+		out = append(out, v.renderToolCall(tc, width)...)
+		out = append(out, "")
+	}
+	if v.Err != "" {
+		out = append(out, v.renderErr(width)...)
+		out = append(out, "")
+	}
+	return out, anchors
+}
+
+// refreshToolPaths rebuilds the tool_use_id -> path map from the
+// current transcript. Called once per Build() so tool result blocks
+// (which may be cached) can look up their syntax language when they
+// were originally rendered. Walking the transcript here is O(N) but
+// cheap compared to markdown/chroma work it enables.
+func (v *View) refreshToolPaths() {
+	v.toolPaths = map[string]string{}
+	v.toolStartLines = map[string]int{}
+	v.toolCallLabels = map[string]string{}
+	for _, m := range v.Messages {
+		for _, c := range m.Content {
+			if tc, ok := c.(provider.ToolCallBlock); ok {
+				if p := pathFromToolArgs(tc.Arguments); p != "" {
+					v.toolPaths[tc.ID] = p
+				}
+				if off := offsetFromToolArgs(tc.Arguments); off >= 1 {
+					v.toolStartLines[tc.ID] = off
+				}
+				v.toolCallLabels[tc.ID] = tc.Name + " " + ShortArgs(tc.Name, tc.Arguments)
+			}
+		}
+	}
+}
+
+// renderMessageCached returns the rendered line slice for m, using the
+// cache if the same (content hash, width, expandAll) combination has
+// been rendered before. The slice returned is shared — callers must
+// not mutate it; Build() only ever appends to its own `out` so the
+// shared slice is safe.
+func (v *View) renderMessageCached(m provider.Message, width int, turnOpen bool) []string {
+	key := msgCacheKey{
+		hash:      hashMessage(m),
+		width:     width,
+		expandAll: v.ExpandAll,
+		turnOpen:  turnOpen,
+	}
+	if v.renderCache != nil {
+		if lines, ok := v.renderCache[key]; ok {
+			return lines
+		}
+	}
+	lines := v.renderMessage(m, width, turnOpen)
+	if v.renderCache != nil {
+		// Bound the cache: 4x the current message count is enough to
+		// survive /compact churn without leaking memory across a very
+		// long session.
+		max := len(v.Messages) * 4
+		if max < 32 {
+			max = 32
+		}
+		if len(v.renderCache) > max {
+			// Drop half the entries. map iteration order gives us a
+			// pseudo-LRU for free.
+			dropped := 0
+			target := len(v.renderCache) / 2
+			for k := range v.renderCache {
+				if dropped >= target {
+					break
+				}
+				delete(v.renderCache, k)
+				dropped++
+			}
+		}
+		v.renderCache[key] = lines
+	}
+	return lines
+}
+
+// hashMessage returns a 64-bit FNV-1a over the role + content blocks
+// of m. Serialising each block to its salient bytes is enough: two
+// messages with the same role and same content render identically.
+func hashMessage(m provider.Message) uint64 {
+	h := fnv64aInit
+	h = fnv64aWrite(h, []byte(m.Role))
+	h = fnv64aWriteByte(h, 0)
+	for _, c := range m.Content {
+		switch b := c.(type) {
+		case provider.TextBlock:
+			h = fnv64aWriteByte(h, 't')
+			h = fnv64aWrite(h, []byte(b.Text))
+		case provider.ImageBlock:
+			h = fnv64aWriteByte(h, 'i')
+			h = fnv64aWrite(h, []byte(b.MimeType))
+			h = fnv64aWrite(h, b.Data)
+		case provider.ToolCallBlock:
+			h = fnv64aWriteByte(h, 'c')
+			h = fnv64aWrite(h, []byte(b.ID))
+			h = fnv64aWrite(h, []byte(b.Name))
+			h = fnv64aWrite(h, []byte(b.Arguments))
+		case provider.ToolResultBlock:
+			h = fnv64aWriteByte(h, 'r')
+			h = fnv64aWrite(h, []byte(b.CallID))
+			if b.IsError {
+				h = fnv64aWriteByte(h, 'E')
+			}
+			for _, inner := range b.Content {
+				switch ib := inner.(type) {
+				case provider.TextBlock:
+					h = fnv64aWrite(h, []byte(ib.Text))
+				case provider.ImageBlock:
+					h = fnv64aWrite(h, []byte(ib.MimeType))
+					h = fnv64aWrite(h, ib.Data)
+				}
+			}
+		}
+		h = fnv64aWriteByte(h, 0)
+	}
+	return h
+}
+
+// FNV-1a implementation inlined so we don't pay the interface cost of
+// hash.Hash64 on every Build(). The whole point here is speed.
+const (
+	fnv64aInit  uint64 = 0xcbf29ce484222325
+	fnv64aPrime uint64 = 0x100000001b3
+)
+
+// assistantBodyRightPad is the blank gutter kept on the right
+// side of every assistant prose line.
+const assistantBodyRightPad = 2
+
+// assistantBodyWidth returns the usable width for the assistant
+// message body (markdown prose + code fences). Uses the full
+// column width passed in minus assistantBodyRightPad, clamped
+// at 1 so wrap helpers don't divide by zero on absurdly narrow
+// terminals. The right-side padding keeps a small breathing
+// column to the terminal edge that mirrors the left indent.
+func assistantBodyWidth(outer int) int {
+	outer -= assistantBodyRightPad
+	if outer < 1 {
+		return 1
+	}
+	return outer
+}
+
+func fnv64aWriteByte(h uint64, b byte) uint64 {
+	h ^= uint64(b)
+	h *= fnv64aPrime
+	return h
+}
+
+func fnv64aWrite(h uint64, p []byte) uint64 {
+	for _, b := range p {
+		h ^= uint64(b)
+		h *= fnv64aPrime
+	}
+	return h
+}
+
+func (v *View) renderMessage(m provider.Message, width int, turnOpen bool) []string {
+	var lines []string
+
+	// Compaction summary: render as a single muted line at the end
+	// of the chat instead of as a user message.
+	if m.Meta["compaction"] == "true" {
+		if v.ExpandAll {
+			return v.renderCompactionBlock(m, width)
+		}
+		// Collapsed: skip entirely. The status bar shows the info.
+		return nil
+	}
+
+	switch m.Role {
+	case provider.RoleUser:
+		// User rows: no speaker label. Each line is painted with a
+		// faint bubble background tint (UserBubble) so the user's
+		// turns visually segment the chat without needing a header.
+		// One tinted blank row above and below approximates CSS
+		// padding-top / padding-bottom (terminals can't do fractional
+		// rows, so a full row of bubble-coloured whitespace is the
+		// closest analogue and gives the bubble visible breathing
+		// room).
+		// User rows: a 1-cell "▌" accent bar at column 0 painted on
+		// the bubble bg, so the bar's cell shares the panel tint and
+		// there is no visible gap between bar and panel. (Some terminals
+		// — iTerm2, Apple Terminal — may smear the cell-0 bg into the
+		// window inset to the left; that's a terminal-side rendering
+		// quirk we accept in exchange for a clean bar-to-panel join.)
+		const leftGutter = 0                               // cells of bubble bg between bar and text
+		const rightGutter = 2                              // cells of bubble bg between text and right edge
+		innerWidth := width - 2 - leftGutter - rightGutter // 2 = bar's two cells (▌ + trailing space)
+		if innerWidth < 1 {
+			innerWidth = 1
+		}
+		row := func(content string) string {
+			inner := strings.Repeat(" ", leftGutter) + content
+			padded := v.Theme.UserBubble(inner, width-2)
+			bar := v.Theme.BG(v.Theme.UserBubbleBG, v.Theme.FG256(v.Theme.Accent, "▌ "))
+			return bar + padded
+		}
+		if v.CompactUser || v.CompactMode {
+			// Compact: no tinted bubble background and no padding rows.
+			// Each wrapped row is a quiet "▌ text" gutter line, matching
+			// the flat tool-call header so user turns still segment the
+			// chat without the loud panel.
+			innerWidth = width - 2
+			if innerWidth < 1 {
+				innerWidth = 1
+			}
+			row = func(content string) string {
+				if v.CompactMode {
+					content = v.Theme.FG256(v.Theme.Muted, content)
+				}
+				return v.Theme.FG256(v.Theme.Accent, "▌ ") + content
+			}
+		}
+		var bubble []string
+		for _, c := range m.Content {
+			switch b := c.(type) {
+			case provider.TextBlock:
+				for _, l := range strings.Split(b.Text, "\n") {
+					l = sanitizeUserBubbleLine(l)
+					for _, w := range wrapLine(l, innerWidth, "") {
+						bubble = append(bubble, row(w))
+					}
+				}
+			case provider.ImageBlock:
+				bubble = append(bubble, row(fmt.Sprintf("[image %s, %d bytes]", b.MimeType, len(b.Data))))
+			}
+		}
+		if len(bubble) > 0 {
+			if v.CompactUser || v.CompactMode {
+				// No tinted padding rows in compact mode; the inter-message
+				// blank from Build() already gives the turn breathing room.
+				lines = append(lines, bubble...)
+			} else {
+				lines = append(lines, row(""))
+				lines = append(lines, bubble...)
+				lines = append(lines, row(""))
+			}
+		}
+	case provider.RoleAssistant:
+		// Assistant rows: no speaker label either. Prose still gets a
+		// small left indent so it visually aligns with tool box body
+		// content, but no "puddle" header.
+		_ = turnOpen
+		const indent = "  "
+		inner := assistantBodyWidth(width - len(indent))
+		for _, c := range m.Content {
+			switch b := c.(type) {
+			case provider.TextBlock:
+				md := RenderMarkdown(strings.TrimLeft(b.Text, "\n"), v.Theme, inner)
+				for _, l := range strings.Split(md, "\n") {
+					for _, w := range wrapANSILine(l, inner) {
+						lines = append(lines, indent+w)
+					}
+				}
+			case provider.ToolCallBlock:
+				// The whole box (top + body + bottom) is rendered by
+				// the matching tool_result message so a single
+				// assistant message that batches multiple tool_use
+				// blocks doesn't produce a stack of unclosed top
+				// edges. Each tool result owns its own box.
+				_ = b
+			}
+		}
+	case provider.RoleTool:
+		for _, c := range m.Content {
+			if tr, ok := c.(provider.ToolResultBlock); ok {
+				color := v.Theme.ToolOut
+				if tr.IsError {
+					color = v.Theme.Error
+				}
+				path := ""
+				if v.toolPaths != nil {
+					path = v.toolPaths[tr.CallID]
+				}
+				startLine := 1
+				if v.toolStartLines != nil {
+					if s := v.toolStartLines[tr.CallID]; s > 0 {
+						startLine = s
+					}
+				}
+				label := ""
+				if v.toolCallLabels != nil {
+					label = v.toolCallLabels[tr.CallID]
+				}
+				// Each tool result owns a complete box: top edge with
+				// the call's label, body rows wrapped in vertical
+				// edges, bottom edge to close. The label is looked up
+				// from the matching ToolCallBlock so multiple calls
+				// in one assistant message render as N adjacent boxes
+				// instead of stacking unclosed top edges.
+				if v.FlatTools || v.CompactMode {
+					if v.CompactMode {
+						lines = append(lines, compactToolBlank(v.Theme, width))
+					}
+					lines = append(lines, toolHeaderLine(v.Theme, label, width, v.CompactMode))
+					if tr.IsError {
+						lines = append(lines, toolBodyLine(v.Theme, v.Theme.FG256(color, "  error"), width, v.CompactMode))
+					}
+					for _, line := range v.renderToolResultContent(tr.Content, width, color, path, startLine) {
+						_, stripped := parseImageFootprint(line)
+						lines = append(lines, toolBodyLine(v.Theme, stripped, width, v.CompactMode))
+					}
+					if v.CompactMode {
+						lines = append(lines, compactToolBlank(v.Theme, width))
+					}
+					continue
+				}
+				lines = append(lines, toolBoxTop(v.Theme, label, width))
+				lines = append(lines, toolBoxSide(v.Theme, "", width))
+				if tr.IsError {
+					lines = append(lines, toolBoxSide(v.Theme, v.Theme.FG256(color, "  error"), width))
+				}
+				for _, line := range v.renderToolResultContent(tr.Content, width, color, path, startLine) {
+					// Image-footprint rows (the escape row, the blank
+					// reservation rows beneath it, and the gap row
+					// before the metadata caption) are tagged with the
+					// imageFootprintSentinel by renderImageBlock. Strip
+					// the tag, parse the optional width hint, then wrap
+					// the row in the usual │ ... │ box edges so the
+					// frame stays continuous around the image.
+					imgCells, stripped := parseImageFootprint(line)
+					if hasImageEscapeLine(stripped) {
+						lines = append(lines, toolBoxSideWithImage(v.Theme, stripped, imgCells, width))
+					} else {
+						lines = append(lines, toolBoxSide(v.Theme, stripped, width))
+					}
+				}
+				lines = append(lines, toolBoxSide(v.Theme, "", width))
+				lines = append(lines, toolBoxBottom(v.Theme, width))
+			}
+		}
+	}
+	return lines
+}
+
+func (v *View) renderToolCall(tc ToolCallView, width int) []string {
+	var lines []string
+
+	// Header label. While the call is still streaming, prefer the
+	// live path extracted from the partial args so the user sees
+	// the target file as soon as it's known, even before the full
+	// JSON arrived.
+	arg := tc.Args
+	if arg == "" && tc.LivePath != "" {
+		arg = tc.LivePath
+	}
+	label := tc.Name + " " + arg
+
+	// No leading blank: Build()'s inter-message separator already
+	// places one blank row between the previous transcript content
+	// and the live overlay, matching the spacing the same call has
+	// once it finalises into a transcript box. Adding another blank
+	// here would double the gap during streaming and visibly tighten
+	// when the overlay disappears.
+
+	// Live body (write/edit): keep the streamed preview visible until
+	// a real tool result arrives. The provider can finish the tool_use
+	// JSON before puddle has executed the tool, so keying this on
+	// tc.Streaming makes write/edit boxes collapse for a moment between
+	// EvToolUseEnd and EvToolResult.
+	if tc.Result == "" {
+		if body := v.renderLiveToolBody(tc, width); len(body) > 0 {
+			// Pad the live preview up to the call's high-water height so
+			// it never shrinks mid-stream (e.g. between edit 1 and the
+			// start of edit 2). Padding sits inside the box as real
+			// box-side rows so the surrounding layout stays put. The
+			// high-water mark is per call id and is dropped the moment a
+			// Result lands (this branch only runs while Result == "").
+			high := len(body)
+			if v.liveBodyHigh != nil {
+				if prev := v.liveBodyHigh[tc.ID]; prev > high {
+					high = prev
+				}
+				v.liveBodyHigh[tc.ID] = high
+			}
+			if v.FlatTools || v.CompactMode {
+				for len(body) < high {
+					body = append(body, "")
+				}
+				if v.CompactMode {
+					lines = append(lines, compactToolBlank(v.Theme, width))
+				}
+				lines = append(lines, toolHeaderLine(v.Theme, label, width, v.CompactMode))
+				lines = append(lines, body...)
+				if v.CompactMode {
+					lines = append(lines, compactToolBlank(v.Theme, width))
+				}
+				return lines
+			}
+			for len(body) < high {
+				body = append(body, toolBoxSide(v.Theme, "", width))
+			}
+			lines = append(lines, toolBoxTop(v.Theme, label, width))
+			lines = append(lines, toolBoxSide(v.Theme, "", width))
+			lines = append(lines, body...)
+			lines = append(lines, toolBoxSide(v.Theme, "", width))
+			lines = append(lines, toolBoxBottom(v.Theme, width))
+			return lines
+		}
+	}
+
+	// Finished tool call with no body: just the labelled top edge
+	// directly closed by the bottom. Avoids a blank interior row
+	// for no-output tools.
+	if tc.Result == "" {
+		if v.FlatTools || v.CompactMode {
+			if v.CompactMode {
+				lines = append(lines, compactToolBlank(v.Theme, width))
+			}
+			lines = append(lines, toolHeaderLine(v.Theme, label, width, v.CompactMode))
+			if v.CompactMode {
+				lines = append(lines, compactToolBlank(v.Theme, width))
+			}
+			return lines
+		}
+		lines = append(lines, toolBoxTop(v.Theme, label, width))
+		lines = append(lines, toolBoxBottom(v.Theme, width))
+		return lines
+	}
+
+	// Finished tool call with a result body. Top edge embeds the
+	// label; body lines go through toolBoxSide so each row gets
+	// vertical edges; bottom edge closes the box. Blank interior
+	// rows after the top and before the bottom give the body a bit
+	// of breathing room from the corners.
+	color := v.Theme.ToolOut
+	if tc.Error {
+		color = v.Theme.Error
+	}
+	if v.FlatTools || v.CompactMode {
+		if v.CompactMode {
+			lines = append(lines, compactToolBlank(v.Theme, width))
+		}
+		lines = append(lines, toolHeaderLine(v.Theme, label, width, v.CompactMode))
+		body := toolResultBlock(v.Theme, tc.Result, flatToolBodyRenderWidth(width), color)
+		for _, l := range v.collapseToolBody(body, false) {
+			_, stripped := parseImageFootprint(l)
+			lines = append(lines, toolBodyLine(v.Theme, stripped, width, v.CompactMode))
+		}
+		if v.CompactMode {
+			lines = append(lines, compactToolBlank(v.Theme, width))
+		}
+		return lines
+	}
+	lines = append(lines, toolBoxTop(v.Theme, label, width))
+	lines = append(lines, toolBoxSide(v.Theme, "", width))
+	body := toolResultBlock(v.Theme, tc.Result, toolBoxBodyRenderWidth(width), color)
+	for _, l := range v.collapseToolBody(body, false) {
+		imgCells, stripped := parseImageFootprint(l)
+		if hasImageEscapeLine(stripped) {
+			lines = append(lines, toolBoxSideWithImage(v.Theme, stripped, imgCells, width))
+			continue
+		}
+		lines = append(lines, toolBoxSide(v.Theme, stripped, width))
+	}
+	lines = append(lines, toolBoxSide(v.Theme, "", width))
+	lines = append(lines, toolBoxBottom(v.Theme, width))
+	return lines
+}
+
+// renderLiveToolBody renders the in-flight preview of a streaming
+// tool call. Supported tools:
+//
+//   - write: shows the partial `content` field, syntax-highlighted
+//     by the target path's language.
+//   - edit:  shows the partial `newText` of the edit currently being
+//     streamed, prefixed with a "editing foo.ts (edit 2)" header so
+//     the user can see which of a multi-edit batch is in progress.
+//   - bash:  shows the full command as soon as the JSON args are known,
+//     before stdout/stderr has arrived, so long-running commands are legible.
+//
+// Anything else returns nil and only the tool-call header shows.
+func (v *View) renderLiveToolBody(tc ToolCallView, width int) []string {
+	switch tc.Name {
+	case "write", "Write":
+		partial, ok, _ := ExtractPartialStringField(tc.RawJSONBuf, "content")
+		if !ok || partial == "" {
+			return nil
+		}
+		return v.wrapLiveBody(v.renderRawFile(partial, tc.LivePath, 1), width)
+	case "edit", "Edit":
+		partial, ok, _, idx := ExtractLastNewText(tc.RawJSONBuf)
+		if !ok || partial == "" {
+			return nil
+		}
+		// Header line hints which edit is streaming and, when more
+		// than one has landed, how many the model is doing.
+		hint := fmt.Sprintf("edit %d (streaming)", idx)
+		body := []string{"    " + v.Theme.FG256(v.Theme.Muted, hint), ""}
+		body = append(body, v.renderRawFile(partial, tc.LivePath, 1)...)
+		return v.wrapLiveBody(body, width)
+	case "bash", "Bash":
+		command, ok, _ := ExtractPartialStringField(tc.RawJSONBuf, "command")
+		if !ok || strings.TrimSpace(command) == "" {
+			return nil
+		}
+		return v.wrapLiveBody(v.renderLiveBashCommand(command, width), width)
+	}
+	return nil
+}
+
+func (v *View) renderLiveBashCommand(command string, width int) []string {
+	inner := toolBoxBodyRenderWidth(width)
+	if v.FlatTools || v.CompactMode {
+		inner = flatToolBodyRenderWidth(width)
+	}
+	prompt := v.Theme.FG256(v.Theme.Muted, "$ ")
+	var out []string
+	for i, line := range strings.Split(command, "\n") {
+		firstPrefix := "    "
+		if i == 0 {
+			firstPrefix += prompt
+		} else {
+			firstPrefix += "  "
+		}
+		contPrefix := "      "
+		wrapWidth := inner - visibleWidth(firstPrefix)
+		if wrapWidth < 10 {
+			wrapWidth = 10
+		}
+		for j, wrapped := range wrapANSILine(v.Theme.FG256(v.Theme.ToolOut, line), wrapWidth) {
+			prefix := firstPrefix
+			if j > 0 {
+				prefix = contPrefix
+			}
+			out = append(out, prefix+wrapped)
+		}
+	}
+	return out
+}
+
+// wrapLiveBody returns the streaming body content as a list of
+// box-side rows: each line wrapped in │ ... │ with right padding so
+// the closing edge sits at column width-1. The caller (renderToolCall)
+// supplies the surrounding top/bottom edges so the live overlay
+// renders as a closed box matching the finalised transcript form.
+func (v *View) wrapLiveBody(body []string, width int) []string {
+	body = v.collapseToolBody(body, false)
+	out := make([]string, 0, len(body))
+	if v.FlatTools || v.CompactMode {
+		for _, l := range body {
+			_, stripped := parseImageFootprint(l)
+			out = append(out, toolBodyLine(v.Theme, stripped, width, v.CompactMode))
+		}
+		return out
+	}
+	for _, l := range body {
+		imgCells, stripped := parseImageFootprint(l)
+		if hasImageEscapeLine(stripped) {
+			out = append(out, toolBoxSideWithImage(v.Theme, stripped, imgCells, width))
+			continue
+		}
+		out = append(out, toolBoxSide(v.Theme, stripped, width))
+	}
+	return out
+}
+
+// toolResultBlock wraps text in thin horizontal rules (top + bottom),
+// indenting the body with four spaces. The rules span the content column.
+// toolBlockRule renders the muted horizontal separator drawn
+// above and below a tool call block. Spans the full content
+// width so it reads as a real section break in the chat
+// regardless of terminal size.
+func toolBlockRule(th Theme, width int) string {
+	w := width
+	if w < 8 {
+		w = 8
+	}
+	return th.FG256(th.Muted, strings.Repeat("─", w))
+}
+
+// toolBoxInnerPad is the number of blank cells kept between a box
+// edge (┌, │, └) and the content inside it. One cell of breathing
+// room makes the label read as part of the box rather than fused to
+// the corner, and gives body lines a tiny gutter from the left side.
+const toolBoxInnerPad = 1
+
+// toolBoxOuterMargin is the number of blank cells kept to the left of
+// the opening corner and to the right of the closing corner. Aligns
+// the box's frame with the column where user-bubble text begins, so
+// the conversation reads as one column instead of having tool boxes
+// running edge-to-edge while user/assistant rows sit indented.
+const toolBoxOuterMargin = 2
+
+// toolBoxTop renders the labelled top edge of a tool block:
+//
+//	┌─  bash xcrun simctl list devices ─────────────────────────────┐
+//
+// The label is the tool name + short args (the same string previously
+// shown on its own row beneath the rule). Padding fills the remainder
+// of the line so the right corner sits at column width-1, matching the
+// closing edge.
+func toolBoxTop(th Theme, label string, width int) string {
+	label = oneLineToolLabel(label)
+	w := width - 2*toolBoxOuterMargin
+	if w < 12 {
+		w = 12
+	}
+	margin := strings.Repeat(" ", toolBoxOuterMargin)
+	innerPad := strings.Repeat(" ", toolBoxInnerPad)
+	// "┌─" + innerPad + " " + label + " " + innerPad = used; pad
+	// with ─ to width-1, then "┐".
+	prefix := "┌─" + innerPad + " "
+	suffix := " " + innerPad
+	used := visibleWidth(prefix) + visibleWidth(label) + visibleWidth(suffix)
+	fill := w - used - 1 // -1 for the closing corner
+	if fill < 0 {
+		// Label overflows; truncate with an ellipsis so the right
+		// corner still lands on the right edge. Rare on real
+		// terminals (the chat column is usually wide enough).
+		over := -fill
+		runes := []rune(label)
+		if over+3 < len(runes) {
+			label = string(runes[:len(runes)-over-3]) + "..."
+		} else {
+			label = "..."
+		}
+		used = visibleWidth(prefix) + visibleWidth(label) + visibleWidth(suffix)
+		fill = w - used - 1
+		if fill < 0 {
+			fill = 0
+		}
+	}
+	fillStr := strings.Repeat("─", fill)
+	name, rest := splitToolLabel(label)
+	return margin + th.FG256(th.Muted, prefix) + th.FG256(th.FG, name) + th.FG256(th.Muted, rest+suffix+fillStr+"┐") + margin
+}
+
+func oneLineToolLabel(label string) string {
+	return strings.Join(strings.Fields(label), " ")
+}
+
+func splitToolLabel(label string) (name, rest string) {
+	label = strings.TrimLeft(label, " ")
+	if label == "" {
+		return "", ""
+	}
+	idx := strings.IndexAny(label, " \t")
+	if idx < 0 {
+		return label, ""
+	}
+	return label[:idx], label[idx:]
+}
+
+// flatToolHeader renders the boxless header line for a tool call:
+//
+//	▌ bash xcrun simctl list devices
+//
+// It carries the same information as toolBoxTop (tool name + short
+// args) but drops the frame: a single accent gutter glyph, the tool
+// name in the foreground color, and the argument summary muted. The
+// line is left-aligned at the same column the box's opening corner
+// used (toolBoxOuterMargin) so flat and box renders share a column.
+func toolHeaderLine(th Theme, label string, width int, compact bool) string {
+	if compact {
+		return compactToolHeader(th, label, width)
+	}
+	return flatToolHeader(th, label, width)
+}
+
+func flatToolHeader(th Theme, label string, width int) string {
+	label = oneLineToolLabel(label)
+	name, rest := splitToolLabel(label)
+	margin := strings.Repeat(" ", toolBoxOuterMargin)
+	gutter := th.FG256(th.Assistant, "▌") + " "
+	// Budget the visible text to the content width so a very long
+	// argument summary doesn't run off the right edge; truncate with
+	// an ellipsis like the box header does.
+	avail := width - toolBoxOuterMargin - visibleWidth("▌ ")
+	if avail < 12 {
+		avail = 12
+	}
+	if visibleWidth(name+rest) > avail {
+		over := visibleWidth(name+rest) - avail
+		runes := []rune(rest)
+		if over+3 < len(runes) {
+			rest = string(runes[:len(runes)-over-3]) + "..."
+		} else if visibleWidth(name) <= avail {
+			rest = ""
+		}
+	}
+	return margin + gutter + th.FG256(th.FG, name) + th.FG256(th.Muted, rest)
+}
+
+func compactToolBlank(th Theme, width int) string {
+	if width < 1 {
+		width = 1
+	}
+	return sgrBGColor(th.UserBubbleBG) + strings.Repeat(" ", width) + reset
+}
+
+func compactToolHeader(th Theme, label string, width int) string {
+	label = oneLineToolLabel(label)
+	name, rest := splitToolLabel(label)
+	pad := "  "
+	avail := width - visibleWidth(pad)*2
+	if avail < 12 {
+		avail = 12
+	}
+	if visibleWidth(name+rest) > avail {
+		over := visibleWidth(name+rest) - avail
+		runes := []rune(rest)
+		if over+3 < len(runes) {
+			rest = string(runes[:len(runes)-over-3]) + "..."
+		} else if visibleWidth(name) <= avail {
+			rest = ""
+		}
+	}
+	plain := pad + name + rest
+	visible := visibleWidth(plain)
+	fill := ""
+	if visible < width {
+		fill = strings.Repeat(" ", width-visible)
+	}
+	bg := sgrBGColor(th.UserBubbleBG)
+	return bg + pad + sgrFG(th.FG) + name + bg + sgrFG(th.Muted) + rest + bg + fill + reset
+}
+
+func toolBodyLine(th Theme, line string, width int, compact bool) string {
+	line = flatToolBody(th, line)
+	if compact {
+		return compactToolBody(th, line, width)
+	}
+	return line
+}
+
+// flatToolBody indents a single body line for boxless rendering. It
+// trims the same leading padding box bodies do, then prepends a fixed
+// gutter indent so output sits in a readable column under the header
+// without any vertical frame. ANSI styling in the line is preserved.
+func flatToolBody(th Theme, line string) string {
+	_ = th
+	line = trimLeadingSpaces(line, toolBoxBodyTrimLeft)
+	return strings.Repeat(" ", toolBoxOuterMargin+2) + line
+}
+
+func compactToolBody(th Theme, line string, width int) string {
+	visible := visibleWidth(line)
+	fill := ""
+	if visible < width {
+		fill = strings.Repeat(" ", width-visible)
+	}
+	bg := sgrBGColor(th.UserBubbleBG)
+	return bg + strings.ReplaceAll(line, reset, reset+bg) + bg + fill + reset
+}
+
+// toolBoxBottom renders the bottom edge of a tool block:
+//
+//	└─────────────────────────────────────────────────────────────────────────────┘
+//
+// Spans the same width as toolBoxTop so the corners line up.
+func toolBoxBottom(th Theme, width int) string {
+	w := width - 2*toolBoxOuterMargin
+	if w < 12 {
+		w = 12
+	}
+	margin := strings.Repeat(" ", toolBoxOuterMargin)
+	line := "└" + strings.Repeat("─", w-2) + "┘"
+	return margin + th.FG256(th.Muted, line) + margin
+}
+
+// hasImageEscapeLine reports whether s contains a Kitty (\x1b_G) or
+// iTerm2 (\x1b]1337;File=) inline-image escape. Such rows draw into
+// the terminal's graphics layer and shouldn't be wrapped with text
+// box edges.
+func hasImageEscapeLine(s string) bool {
+	return strings.Contains(s, "\x1b]1337;File=") || strings.Contains(s, "\x1b_G")
+}
+
+// imageFootprintSentinel marks rows that belong to an inline-image's
+// reserved footprint — the escape row plus the blank rows below it
+// plus the gap row before the metadata caption. Any consumer that
+// wraps content in box edges (│ ... │) detects the sentinel, strips
+// it, and emits the row — the image graphics rectangle paints over
+// whatever was drawn there. Uses a non-printing C0 control byte so
+// it can never appear in normal text or in an ANSI escape sequence
+// body.
+//
+// The escape row carries an extra width hint between two sentinels:
+// "\x1e<cells>\x1e<spaces+escape>". Wrappers parse the cells count
+// to know how wide the image is in terminal cells and how many cells
+// of trailing padding are needed before the closing box edge.
+const imageFootprintSentinel = "\x1e"
+
+// parseImageFootprint splits a footprint-tagged row into (cellsWide,
+// rest). cellsWide is 0 when the row carries no width hint (the
+// reservation blanks and gap row don't, only the escape row does).
+func parseImageFootprint(s string) (int, string) {
+	if !strings.HasPrefix(s, imageFootprintSentinel) {
+		return 0, s
+	}
+	rest := s[len(imageFootprintSentinel):]
+	end := strings.Index(rest, imageFootprintSentinel)
+	if end < 0 {
+		return 0, rest
+	}
+	w, err := strconv.Atoi(rest[:end])
+	if err != nil {
+		return 0, rest
+	}
+	return w, rest[end+len(imageFootprintSentinel):]
+}
+
+// toolBoxBodyTrimLeft is the number of leading literal spaces stripped
+// from each body line as it enters toolBoxSide. Body renderers
+// (renderToolText, renderRawFile, the diff/bash helpers, ...) all
+// emit a 4-cell indent so the content aligns with the assistant body
+// column when there's no box around it. Inside a box the box edge +
+// inner pad already supply most of that gutter, so we drop a couple
+// of cells from the body's own indent to keep the content from
+// drifting too far right.
+const toolBoxBodyTrimLeft = 2
+
+// toolBoxBodyRenderWidth is the width body renderers should target before
+// their rows are wrapped by toolBoxSide. Most body renderers emit a four-cell
+// indent; toolBoxSide trims toolBoxBodyTrimLeft cells from that indent and
+// then adds the box edge/padding. Passing the full terminal width lets long
+// bash/heredoc lines overrun the inner box and makes terminals soft-wrap,
+// visually breaking the right edge. This returns the maximum renderer width
+// whose post-trim visible width fits inside the box.
+func toolBoxBodyRenderWidth(width int) int {
+	w := width - 2*toolBoxOuterMargin
+	if w < 12 {
+		w = 12
+	}
+	inner := w - 2 - 2*toolBoxInnerPad
+	if inner < 1 {
+		inner = 1
+	}
+	return inner + toolBoxBodyTrimLeft
+}
+
+// flatToolBodyRenderWidth is the width body renderers should target in
+// flat mode. There's no box frame, just the flatToolBody indent
+// (toolBoxOuterMargin+2 cells), so the renderable width is the
+// terminal width minus that indent. Renderers emit a 4-cell indent of
+// their own which flatToolBody trims toolBoxBodyTrimLeft cells from,
+// so add that back like toolBoxBodyRenderWidth does.
+func flatToolBodyRenderWidth(width int) int {
+	inner := width - (toolBoxOuterMargin + 2)
+	if inner < 1 {
+		inner = 1
+	}
+	return inner + toolBoxBodyTrimLeft
+}
+
+// toolBoxSide wraps a single body line with vertical box edges:
+//
+//	│  foo bar baz                                            │
+//
+// The middle preserves the line verbatim (including any ANSI escapes)
+// after stripping toolBoxBodyTrimLeft leading literal spaces. One cell
+// of inner padding sits on each side so the content breathes from the
+// edges; the right padding fills to column width-1.
+func toolBoxSide(th Theme, line string, width int) string {
+	w := width - 2*toolBoxOuterMargin
+	if w < 12 {
+		w = 12
+	}
+	margin := strings.Repeat(" ", toolBoxOuterMargin)
+	left := th.FG256(th.Muted, "│") + strings.Repeat(" ", toolBoxInnerPad)
+	right := strings.Repeat(" ", toolBoxInnerPad) + th.FG256(th.Muted, "│")
+	inner := w - 2 - 2*toolBoxInnerPad // available between the two pads
+	line = trimLeadingSpaces(line, toolBoxBodyTrimLeft)
+
+	cur := visibleWidth(line)
+	if cur > inner {
+		// Last-resort truncation. Strips ANSI styling at the cut
+		// point; rare path so the simpler implementation is fine.
+		line = stripANSI(line)
+		runes := []rune(line)
+		if len(runes) > inner {
+			line = string(runes[:inner])
+		}
+		cur = visibleWidth(line)
+	}
+	pad := inner - cur
+	if pad < 0 {
+		pad = 0
+	}
+	return margin + left + line + strings.Repeat(" ", pad) + right + margin
+}
+
+// toolBoxSideWithImage wraps a row that carries an inline-image
+// escape sequence. The image protocols are configured to not move
+// the cursor after rendering (iTerm: doNotMoveCursor=1, kitty/
+// ghostty: C=1), so the only visible cell advance on the row is
+// from the leading indent spaces before the escape. We pad from
+// there to the right edge column and draw the closing │ there.
+// imgCells is unused (kept in the signature for compatibility with
+// the parseImageFootprint width hint).
+func toolBoxSideWithImage(th Theme, line string, imgCells, width int) string {
+	_ = imgCells
+	w := width - 2*toolBoxOuterMargin
+	if w < 12 {
+		w = 12
+	}
+	margin := strings.Repeat(" ", toolBoxOuterMargin)
+	left := th.FG256(th.Muted, "│") + strings.Repeat(" ", toolBoxInnerPad)
+	right := strings.Repeat(" ", toolBoxInnerPad) + th.FG256(th.Muted, "│")
+	inner := w - 2 - 2*toolBoxInnerPad
+
+	line = trimLeadingSpaces(line, toolBoxBodyTrimLeft)
+
+	// Count leading spaces (visible cells consumed before the escape).
+	leading := 0
+	for leading < len(line) && line[leading] == ' ' {
+		leading++
+	}
+
+	pad := inner - leading
+	if pad < 0 {
+		pad = 0
+	}
+	return margin + left + line + strings.Repeat(" ", pad) + right + margin
+}
+
+// trimLeadingSpaces removes up to n literal space characters from the
+// start of s without touching anything else. ANSI CSI escapes that
+// appear before the spaces are skipped over (so a coloured indent
+// like "\x1b[2m    text" still loses its first n cells of indent).
+// Stops as soon as it hits a non-space character.
+func trimLeadingSpaces(s string, n int) string {
+	if n <= 0 || s == "" {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	trimmed := 0
+	i := 0
+	for i < len(s) {
+		// Pass through any ANSI escape sequence verbatim.
+		if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '[' {
+			end := i + 2
+			for end < len(s) {
+				c := s[end]
+				end++
+				if c >= 0x40 && c <= 0x7e {
+					break
+				}
+			}
+			b.WriteString(s[i:end])
+			i = end
+			continue
+		}
+		if trimmed < n && s[i] == ' ' {
+			trimmed++
+			i++
+			continue
+		}
+		b.WriteString(s[i:])
+		return b.String()
+	}
+	return b.String()
+}
+
+// renderToolResultContent renders the body of a tool result block.
+// Text blocks get the usual rules-wrapped treatment; text that looks
+// like a unified diff gets +/- coloring. Image blocks are rendered
+// inline when the terminal supports a protocol, else as a text
+// placeholder with dimensions.
+func (v *View) renderToolResultContent(blocks []provider.Content, width, color int, sourcePath string, startLine int) []string {
+	var body []string
+	hasImage := false
+	for _, b := range blocks {
+		switch bb := b.(type) {
+		case provider.TextBlock:
+			bodyWidth := toolBoxBodyRenderWidth(width)
+			if v.FlatTools || v.CompactMode {
+				bodyWidth = flatToolBodyRenderWidth(width)
+			}
+			body = append(body, v.renderToolText(bb.Text, bodyWidth, color, sourcePath, startLine)...)
+		case provider.ImageBlock:
+			hasImage = true
+			body = append(body, v.renderImageBlock(bb, width)...)
+		}
+	}
+	return v.collapseToolBody(body, hasImage)
+}
+
+// collapseToolBody trims lines to the configured preview size when the
+// view is not in ExpandAll mode, appending a muted "... ctrl+o to
+// expand" footer. Image blocks never collapse — they're short in text
+// rows but represent real content the user wants to see.
+func (v *View) collapseToolBody(lines []string, hasImage bool) []string {
+	if v.ExpandAll || hasImage {
+		return lines
+	}
+	if len(lines) <= ToolCollapseLines {
+		return lines
+	}
+	kept := lines[:ToolCollapsePreview]
+	hidden := len(lines) - ToolCollapsePreview
+	total := len(lines)
+	footer := fmt.Sprintf("    ... (%d more lines, %d total, ctrl+o to expand)", hidden, total)
+	footer = v.Theme.FG256(v.Theme.Muted, footer)
+	out := append([]string(nil), kept...)
+	out = append(out, "")
+	return append(out, footer)
+}
+
+// renderToolText renders a text block inside a tool result. If the
+// text contains a unified-diff section (lines starting with "--- " /
+// "+++ " / "+" / "-"/" "), those rows are styled with add/remove
+// colors matching git diff conventions.
+func (v *View) renderToolText(text string, width, defaultColor int, sourcePath string, startLine int) []string {
+	// Legacy path: transcripts saved before we dropped line numbers
+	// from the read tool still carry "     1\t..." prefixes. Detect and
+	// strip them, then fall through to the highlighter.
+	if looksLikeNumberedFile(text) {
+		return v.renderNumberedFile(text, sourcePath)
+	}
+	// If the result embeds a unified diff (the edit tool's output
+	// starts with a short "applied N edit(s)" line and then a
+	// standard --- / +++ / +/- patch), render the patch with
+	// add/remove coloring. This takes priority over the file-like
+	// detector below because a diff technically has many lines of
+	// "file content" but what the user cares about is what changed,
+	// not a dump of the post-edit file.
+	if looksLikeUnifiedDiff(text) {
+		return v.renderUnifiedDiff(text, width, sourcePath)
+	}
+
+	// Current path: text came from `read` as raw file bytes. When a
+	// source path is known (the call had a `path` arg), render with
+	// a synthetic line-number gutter starting at startLine so the
+	// on-screen view still looks like cat -n. Doesn't apply to non-
+	// file tool outputs (bash stdout, display notes, etc.).
+	if sourcePath != "" && looksLikeFileContent(text) {
+		return v.renderRawFile(text, sourcePath, startLine)
+	}
+
+	// No truncation — the full tool output is rendered into chat and
+	// becomes part of the scrollback you can page back through.
+	lines := strings.Split(text, "\n")
+
+	// Bash-result styling: when the first row looks like a shell
+	// prompt line ("$ ...") emitted by the bash tool, style the
+	// prompt line in accent and the trailing "[exit N]  Took X.Ys"
+	// line in muted type so the command + timing read at a glance.
+	// Everything between is left on the default tool-output color.
+	if len(lines) > 0 && strings.HasPrefix(lines[0], "$ ") {
+		return v.renderBashResult(lines, width, defaultColor)
+	}
+
+	inDiff := false
+	oldLine, newLine := 1, 1
+	var out []string
+	for _, l := range lines {
+		// Detect diff header: "--- name" followed somewhere by "+++ name".
+		if strings.HasPrefix(l, "--- ") || strings.HasPrefix(l, "+++ ") {
+			inDiff = true
+			out = append(out, "    "+v.Theme.FG256(v.Theme.Muted, l))
+			continue
+		}
+		// Hunk header "@@ -a,b +c,d @@" resets the counters so patches
+		// that skip around in the file still get correct numbering.
+		if inDiff && strings.HasPrefix(l, "@@") {
+			if o, n, ok := parseHunkHeader(l); ok {
+				oldLine, newLine = o, n
+			}
+			out = append(out, "    "+v.Theme.FG256(v.Theme.Muted, l))
+			continue
+		}
+		if inDiff && strings.TrimSpace(l) == "..." {
+			out = append(out, "")
+			out = append(out, "    "+v.Theme.FG256(v.Theme.Muted, "..."))
+			continue
+		}
+		if inDiff && len(l) > 0 {
+			switch l[0] {
+			case '+':
+				out = append(out, v.renderDiffRow(l, width, v.Theme.Tool, newLine, '+', sourcePath))
+				newLine++
+				continue
+			case '-':
+				out = append(out, v.renderDiffRow(l, width, v.Theme.Error, oldLine, '-', sourcePath))
+				oldLine++
+				continue
+			case ' ':
+				out = append(out, v.renderDiffRow(l, width, v.Theme.Muted, newLine, ' ', sourcePath))
+				oldLine++
+				newLine++
+				continue
+			}
+		}
+		// Regular line.
+		for _, w := range wrapLine(l, width-4, "    ") {
+			out = append(out, "    "+v.Theme.FG256(defaultColor, w))
+		}
+	}
+	return out
+}
+
+// parseHunkHeader extracts the starting old/new line from a unified
+// diff hunk header ("@@ -12,5 +12,7 @@ ..."). Returns ok=false if the
+// header is malformed or missing numbers.
+func parseHunkHeader(l string) (oldStart, newStart int, ok bool) {
+	// Skip "@@ "
+	rest := strings.TrimPrefix(l, "@@")
+	rest = strings.TrimSpace(rest)
+	if !strings.HasPrefix(rest, "-") {
+		return 0, 0, false
+	}
+	rest = rest[1:]
+	space := strings.IndexByte(rest, ' ')
+	if space < 0 {
+		return 0, 0, false
+	}
+	oldPart := rest[:space]
+	rest = strings.TrimSpace(rest[space+1:])
+	if !strings.HasPrefix(rest, "+") {
+		return 0, 0, false
+	}
+	rest = rest[1:]
+	if sp := strings.IndexAny(rest, " \t"); sp >= 0 {
+		rest = rest[:sp]
+	}
+	parseStart := func(s string) (int, bool) {
+		if c := strings.IndexByte(s, ','); c >= 0 {
+			s = s[:c]
+		}
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 1 {
+			return 0, false
+		}
+		return n, true
+	}
+	o, ok1 := parseStart(oldPart)
+	n, ok2 := parseStart(rest)
+	if !ok1 || !ok2 {
+		return 0, 0, false
+	}
+	return o, n, true
+}
+
+// renderDiffRow renders one unified-diff line with a read-style gutter
+// (6-cell right-aligned line number, muted) followed by the +/-/space
+// marker and the code. Code is syntax-highlighted if sourcePath hints
+// at a known language; falls back to the plain diff color otherwise.
+func (v *View) renderDiffRow(line string, width, color int, lineNo int, mark byte, sourcePath string) string {
+	if len(line) == 0 {
+		return ""
+	}
+	code := expandTabs(line[1:]) // strip the leading marker; expand tabs
+
+	// Syntax-highlight the code half when we know the language. Use
+	// the same HighlightCode pipeline as renderNumberedFile so the
+	// palette matches.
+	lang := LanguageFromPath(sourcePath)
+	var codeRendered string
+	if lang != "" {
+		if h := v.Theme.HighlightCode(code, lang); len(h) == 1 {
+			codeRendered = h[0]
+		}
+	}
+	if codeRendered == "" {
+		if mark == ' ' {
+			codeRendered = v.Theme.FG256(v.Theme.Muted, code)
+		} else {
+			codeRendered = v.Theme.FG256(color, code)
+		}
+	}
+
+	// Gutter shape: sign + number share a color so they read as one
+	// visual token ("+123") instead of a neutral line number next to
+	// a stray marker. Unchanged context lines get a muted gutter and
+	// a leading space so column alignment stays consistent with +/-
+	// rows.
+	var gutterText string
+	switch mark {
+	case '+':
+		gutterText = fmt.Sprintf("+%3d ", lineNo)
+	case '-':
+		gutterText = fmt.Sprintf("-%3d ", lineNo)
+	default:
+		gutterText = fmt.Sprintf(" %3d ", lineNo)
+	}
+	var gutter string
+	if mark == ' ' {
+		gutter = v.Theme.FG256(v.Theme.Muted, gutterText)
+	} else {
+		gutter = v.Theme.FG256(color, gutterText)
+	}
+	row := "    " + gutter + codeRendered
+
+	// Cheap width clamp: truncate visible text if the raw code is too
+	// long. We work on the pre-ANSI code string because measuring ansi
+	// output is unreliable.
+	maxCode := width - 4 /* indent */ - 7 /* gutter (sign+5 digits+tab) */
+	if maxCode > 0 && len(code) > maxCode {
+		trunc := strings.Repeat(".", maxCode)
+		if maxCode > 3 {
+			trunc = code[:maxCode-3] + "..."
+		}
+		if lang != "" {
+			if h := v.Theme.HighlightCode(trunc, lang); len(h) == 1 {
+				codeRendered = h[0]
+			} else if mark == ' ' {
+				codeRendered = v.Theme.FG256(v.Theme.Muted, trunc)
+			} else {
+				codeRendered = v.Theme.FG256(color, trunc)
+			}
+		} else if mark == ' ' {
+			codeRendered = v.Theme.FG256(v.Theme.Muted, trunc)
+		} else {
+			codeRendered = v.Theme.FG256(color, trunc)
+		}
+		row = "    " + gutter + codeRendered
+	}
+	return row
+}
+
+// renderImageBlock returns the lines for one image, inline if possible.
+//
+// Inline image escapes paint into multiple terminal rows but the puddle
+// renderer treats each slice entry as a single row. To prevent chat
+// content from being drawn on top of the image, we pad with blank rows
+// so the image's real footprint is reflected in the frame height.
+func (v *View) renderImageBlock(b provider.ImageBlock, width int) []string {
+	w, h := ImageDimensions(b.Data)
+	kb := len(b.Data) / 1024
+	// Four-space indent matches every other tool-output row
+	// (renderRawFile, renderBashResult, diff rows, "... N more
+	// lines" footers). Keeps the image's metadata line vertically
+	// aligned with the file content above / below it.
+	info := fmt.Sprintf("    image - %s - %dx%d - %d KB", b.MimeType, w, h, kb)
+
+	if v.ImageProto != ImageProtocolNone {
+		// Clamp rendered width so the image never overflows the chat
+		// column. Subtract a 4-cell indent for the tool result block,
+		// cap at 60 cells, floor at 10.
+		cells := width - 4
+		if cells > 60 {
+			cells = 60
+		}
+		if cells < 10 {
+			cells = 10
+		}
+		const maxRows = 20
+		if seq := RenderInlineImageScaled(v.ImageProto, b.Data, b.MimeType, cells, maxRows); seq != "" {
+			rows, actualCells := InlineImageFootprint(b.Data, cells, maxRows)
+			if rows < 1 {
+				rows = 1
+			}
+			if actualCells < 1 {
+				actualCells = cells
+			}
+			// Reserve the image footprint first, then place the escape
+			// in the top-left of that blank rectangle. Keeping the
+			// metadata above the image made some terminals blend text
+			// and graphics layers during full-screen repaints; metadata
+			// below the reserved rectangle is more stable and easier to
+			// read. One extra blank row before the metadata gives the
+			// caption breathing room from the image's last pixel row.
+			//
+			// Every footprint row (escape, reservations, gap) is tagged
+			// with imageFootprintSentinel so callers wrapping content in
+			// box edges can recognise these rows and emit them bare —
+			// the image's graphics rectangle paints over them and any
+			// │ character drawn alongside would visibly bleed through.
+			// 4 leading cells push the escape past the box's left
+			// edge plus a small interior gutter so the image rectangle
+			// sits visibly inside the frame instead of kissing the │.
+			// The escape row carries a width hint after the sentinel
+			// ("\x1e<cells>\x1e...") so toolBoxSide knows how many
+			// cells the image occupies and can pad to the right edge.
+			widthHint := fmt.Sprintf("%s%d%s", imageFootprintSentinel, actualCells, imageFootprintSentinel)
+			out := make([]string, 0, rows+3)
+			out = append(out, widthHint+"    "+seq)
+			for i := 1; i < rows; i++ {
+				out = append(out, imageFootprintSentinel)
+			}
+			out = append(out, imageFootprintSentinel)
+			out = append(out, v.Theme.FG256(v.Theme.Muted, info))
+			return out
+		}
+	}
+	return []string{v.Theme.FG256(v.Theme.Muted, info)}
+}
+
+// looksLikeNumberedFile returns true when text matches the `read`
+// tool's "     N\tcontent" format for most of its lines.
+func looksLikeNumberedFile(text string) bool {
+	lines := strings.Split(text, "\n")
+	if len(lines) == 0 {
+		return false
+	}
+	hits := 0
+	scanned := 0
+	for _, l := range lines {
+		if l == "" {
+			continue
+		}
+		scanned++
+		if scanned > 20 {
+			break
+		}
+		if numberedLineRE.MatchString(l) {
+			hits++
+		}
+	}
+	if scanned == 0 {
+		return false
+	}
+	return hits*2 >= scanned // majority of non-empty lines match
+}
+
+var numberedLineRE = regexp.MustCompile(`^\s*\d+\t`)
+
+// renderNumberedFile strips line numbers, highlights the code, and
+// re-attaches the line numbers in muted color.
+func (v *View) renderNumberedFile(text, sourcePath string) []string {
+	lines := strings.Split(text, "\n")
+	gutters := make([]string, 0, len(lines))
+	codes := make([]string, 0, len(lines))
+	for _, l := range lines {
+		idx := strings.IndexByte(l, '\t')
+		if idx < 0 || !numberedLineRE.MatchString(l) {
+			// Non-code footer (e.g. "[truncated at 2000 lines]").
+			gutters = append(gutters, "")
+			codes = append(codes, l)
+			continue
+		}
+		gutter := l[:idx] + " " // replace tab with single space
+		code := expandTabs(l[idx+1:])
+		gutters = append(gutters, gutter)
+		codes = append(codes, code)
+	}
+	lang := LanguageFromPath(sourcePath)
+	var highlighted []string
+	if lang != "" {
+		highlighted = v.Theme.HighlightCode(strings.Join(codes, "\n"), lang)
+		// Chroma sometimes collapses the trailing empty line. Pad to
+		// align with the gutter slice so per-line zipping works.
+		for len(highlighted) < len(codes) {
+			highlighted = append(highlighted, "")
+		}
+		if len(highlighted) > len(codes) {
+			highlighted = highlighted[:len(codes)]
+		}
+	} else {
+		// No lexer for this file type — render in the ToolOut color so
+		// code is visually distinct from the muted gutter.
+		highlighted = make([]string, len(codes))
+		for i, c := range codes {
+			highlighted[i] = v.Theme.FG256(v.Theme.ToolOut, c)
+		}
+	}
+	out := make([]string, 0, len(codes))
+	for i, code := range highlighted {
+		g := gutters[i]
+		if g == "" {
+			out = append(out, "    "+v.Theme.FG256(v.Theme.Muted, code))
+			continue
+		}
+		out = append(out, "    "+v.Theme.FG256(v.Theme.Muted, g)+code)
+	}
+	return out
+}
+
+// looksLikeFileContent is a cheap guard to distinguish a read-tool
+// result from bash stdout or a status message. File content usually
+// contains characters that status messages don't (code punctuation,
+// longer lines, multiple lines) and rarely starts with the "  >"-
+// or "error:"-style prefixes tools emit. False positives are OK,
+// the worst case is a line-number gutter on something that isn't
+// really code.
+// renderBashResult styles a bash tool result: the "$ command" first
+// line in the accent color, the trailing "[exit N]  Took X.Ys" line
+// in muted type, everything else on the default tool-output color.
+// Called from renderToolText when the first line starts with "$ ".
+func (v *View) renderBashResult(lines []string, width, defaultColor int) []string {
+	lines = normalizeBashOutputLines(lines)
+	// Identify the footer line (exit + timing). The bash tool writes
+	// it as the last non-empty line of the result.
+	footerIdx := -1
+	for i := len(lines) - 1; i >= 0; i-- {
+		trimmed := strings.TrimSpace(lines[i])
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "[exit ") {
+			footerIdx = i
+		}
+		break
+	}
+
+	var out []string
+	for i, l := range lines {
+		switch {
+		case i == 0 && strings.HasPrefix(l, "$ "):
+			// Style the $ and the command text in accent. No
+			// further processing / wrapping so the shell-style
+			// prompt reads at a glance.
+			for _, w := range wrapLine(l, width-4, "    ") {
+				out = append(out, "    "+v.Theme.FG256(v.Theme.Accent, w))
+			}
+		case i == footerIdx:
+			for _, w := range wrapLine(l, width-4, "    ") {
+				out = append(out, "    "+v.Theme.FG256(v.Theme.Muted, w))
+			}
+		default:
+			for _, w := range wrapLine(l, width-4, "    ") {
+				out = append(out, "    "+v.Theme.FG256(defaultColor, w))
+			}
+		}
+	}
+	return out
+}
+
+// normalizeBashOutputLines turns arbitrary terminal output into plain,
+// box-safe rows before wrapping. Unlike read/write/edit output, bash
+// stdout/stderr may contain tabs, carriage returns, ANSI/OSC escapes,
+// and other C0 controls from subprocesses. If those reach the bordered
+// tool box, the width calculator can undercount what the terminal will
+// draw and the right edge appears broken. Keep printable text, expand
+// tabs to spaces, split carriage-return progress rows, and drop escape
+// / control sequences.
+func normalizeBashOutputLines(lines []string) []string {
+	var out []string
+	for _, line := range lines {
+		for _, part := range strings.Split(strings.ReplaceAll(line, "\r", "\n"), "\n") {
+			out = append(out, normalizeBashOutputLine(part))
+		}
+	}
+	if len(out) == 0 {
+		return []string{""}
+	}
+	return out
+}
+
+func normalizeBashOutputLine(s string) string {
+	var b strings.Builder
+	col := 0
+	for i := 0; i < len(s); {
+		c := s[i]
+		if c == 0x1b { // ESC: strip CSI/OSC/DCS and simple escapes.
+			i = skipEscapeSequence(s, i)
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && size == 1 {
+			i++
+			continue
+		}
+		switch r {
+		case '\t':
+			spaces := 8 - (col % 8)
+			if spaces == 0 {
+				spaces = 8
+			}
+			b.WriteString(strings.Repeat(" ", spaces))
+			col += spaces
+		case '\b':
+			// Backspace-overstrike output is common in spinners/progress bars.
+			// Dropping it is safer than moving the TUI cursor backwards.
+		case '\n', '\r':
+			// Already split by normalizeBashOutputLines.
+		default:
+			if r < 0x20 || r == 0x7f {
+				// Drop non-printing controls.
+				break
+			}
+			b.WriteRune(r)
+			col += runewidth.RuneWidth(r)
+		}
+		i += size
+	}
+	return b.String()
+}
+
+func skipEscapeSequence(s string, i int) int {
+	if i >= len(s) || s[i] != 0x1b {
+		return i + 1
+	}
+	if i+1 >= len(s) {
+		return len(s)
+	}
+	switch s[i+1] {
+	case '[': // CSI: ESC [ ... final byte 0x40-0x7e
+		j := i + 2
+		for j < len(s) {
+			c := s[j]
+			j++
+			if c >= 0x40 && c <= 0x7e {
+				break
+			}
+		}
+		return j
+	case ']': // OSC: ESC ] ... BEL or ST
+		return skipStringEscape(s, i+2)
+	case 'P', '_', '^', 'X': // DCS/APC/PM/SOS: ESC P ... ST, etc.
+		return skipStringEscape(s, i+2)
+	default:
+		// Two-byte escape (cursor save/restore, charset select, etc.).
+		return i + 2
+	}
+}
+
+func skipStringEscape(s string, i int) int {
+	for i < len(s) {
+		if s[i] == 0x07 { // BEL
+			return i + 1
+		}
+		if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '\\' { // ST
+			return i + 2
+		}
+		i++
+	}
+	return len(s)
+}
+
+// looksLikeUnifiedDiff reports whether text is a context diff as
+// emitted by the edit tool: rows start with '+', '-', ' ', or
+// literal "..." (context-break marker). The presence of at least
+// one '+' or '-' row distinguishes a real diff from an ordinary
+// file whose lines happen to begin with a space.
+func looksLikeUnifiedDiff(text string) bool {
+	lines := strings.Split(text, "\n")
+	if len(lines) < 2 {
+		return false
+	}
+	sawChange := false
+	for _, l := range lines {
+		if l == "" {
+			continue
+		}
+		if l == "..." {
+			continue
+		}
+		switch l[0] {
+		case '+', '-':
+			sawChange = true
+		case ' ':
+			// context, ok
+		default:
+			return false
+		}
+	}
+	return sawChange
+}
+
+// renderUnifiedDiff renders the edit tool's context diff. Each
+// kept row shows a line-number gutter plus a marker column: '+'
+// for additions (colored like add), '-' for deletions (colored
+// like remove), and unmarked context in muted type. A literal
+// "..." line between hunks renders as an ellipsis in muted type,
+// indicating skipped unchanged rows. The old and new line
+// counters advance so each row carries its actual position in
+// the pre- or post-edit file. Heuristic: when we hit a "...", we
+// can't know where the next hunk starts, so we don't reset the
+// counters — they stay approximate in the rare multi-hunk case.
+func (v *View) renderUnifiedDiff(text string, width int, sourcePath string) []string {
+	lines := strings.Split(text, "\n")
+	if n := len(lines); n > 0 && lines[n-1] == "" {
+		lines = lines[:n-1]
+	}
+	oldLine, newLine := 1, 1
+	var out []string
+	for _, l := range lines {
+		if l == "" {
+			out = append(out, "")
+			continue
+		}
+		if l == "..." {
+			out = append(out, "    "+v.Theme.FG256(v.Theme.Muted, "..."))
+			continue
+		}
+		switch l[0] {
+		case '+':
+			out = append(out, v.renderDiffRow(l, width, v.Theme.Tool, newLine, '+', sourcePath))
+			newLine++
+		case '-':
+			out = append(out, v.renderDiffRow(l, width, v.Theme.Error, oldLine, '-', sourcePath))
+			oldLine++
+		case ' ':
+			out = append(out, v.renderDiffRow(l, width, v.Theme.Muted, newLine, ' ', sourcePath))
+			oldLine++
+			newLine++
+		default:
+			for _, w := range wrapLine(l, width-4, "    ") {
+				out = append(out, "    "+v.Theme.FG256(v.Theme.Muted, w))
+			}
+		}
+	}
+	return out
+}
+
+func looksLikeFileContent(text string) bool {
+	if strings.TrimSpace(text) == "" {
+		return false
+	}
+	lines := strings.Split(text, "\n")
+	return len(lines) >= 2
+}
+
+// renderRawFile renders file content received without embedded line
+// numbers (the current read-tool output). Draws a muted gutter like
+// "%6d \t" starting at startLine, highlights the code using the
+// source path's language, and returns the formatted lines.
+func (v *View) renderRawFile(text, sourcePath string, startLine int) []string {
+	lines := strings.Split(text, "\n")
+	// Drop the trailing empty line that Split produces when text ends
+	// in "\n" so the gutter doesn't show a phantom last number.
+	if n := len(lines); n > 0 && lines[n-1] == "" {
+		lines = lines[:n-1]
+	}
+	// Split code from trailing footer lines ("... [truncated ...]")
+	// so we don't number the footer. A single blank separator line
+	// immediately before the footer is also pulled out so the
+	// gutter doesn't render a phantom number for it.
+	codeEnd := len(lines)
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.HasPrefix(lines[i], "...") {
+			codeEnd = i
+			continue
+		}
+		break
+	}
+	if codeEnd > 0 && codeEnd < len(lines) && lines[codeEnd-1] == "" {
+		codeEnd--
+	}
+	code := lines[:codeEnd]
+	footer := lines[codeEnd:]
+
+	// Expand tabs to 4 spaces so Go / Makefile code renders
+	// at a consistent width.
+	for i, c := range code {
+		code[i] = expandTabs(c)
+	}
+
+	lang := LanguageFromPath(sourcePath)
+	var highlighted []string
+	if lang != "" {
+		highlighted = v.Theme.HighlightCode(strings.Join(code, "\n"), lang)
+		for len(highlighted) < len(code) {
+			highlighted = append(highlighted, "")
+		}
+		if len(highlighted) > len(code) {
+			highlighted = highlighted[:len(code)]
+		}
+	} else {
+		highlighted = make([]string, len(code))
+		for i, c := range code {
+			highlighted[i] = v.Theme.FG256(v.Theme.ToolOut, c)
+		}
+	}
+
+	out := make([]string, 0, len(lines))
+	for i, c := range highlighted {
+		gutter := fmt.Sprintf("%4d ", startLine+i)
+		out = append(out, "    "+v.Theme.FG256(v.Theme.Muted, gutter)+c)
+	}
+	for _, f := range footer {
+		out = append(out, "    "+v.Theme.FG256(v.Theme.Muted, f))
+	}
+	return out
+}
+
+// toolResultBlock renders the live tool-call result body (shown
+// while the turn is still in flight). The rules that used to
+// bracket this block have been dropped so the live path looks
+// identical to the transcript rendering that replaces it when
+// the turn ends.
+func toolResultBlock(th Theme, text string, width int, color int) []string {
+	var out []string
+	for _, l := range strings.Split(text, "\n") {
+		for _, w := range wrapLine(l, width-4, "    ") {
+			out = append(out, "    "+th.FG256(color, w))
+		}
+	}
+	return out
+}
+
+// defaultToolArgWidth is the number of cells the tool-call header
+// truncates the primary argument (path/command/query) to when the
+// PUDDLE_TOOL_ARG_WIDTH environment variable is unset or invalid.
+const defaultToolArgWidth = 60
+
+// toolArgWidth returns the maximum cell width for the truncated
+// primary argument shown in a tool-call header. It defaults to
+// defaultToolArgWidth but can be raised or lowered with the
+// PUDDLE_TOOL_ARG_WIDTH environment variable, which is useful for wide
+// terminals where the default clips long queries too aggressively.
+// Values outside the sane range [20, 500] are ignored so a stray or
+// malformed setting can never produce an unreadable header or an
+// out-of-range slice.
+func toolArgWidth() int {
+	v := strings.TrimSpace(os.Getenv("PUDDLE_TOOL_ARG_WIDTH"))
+	if v == "" {
+		return defaultToolArgWidth
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 20 || n > 500 {
+		return defaultToolArgWidth
+	}
+	return n
+}
+
+// ShortArgs renders a tool call's arguments into a one-line
+// suffix for the "tool name <args>" header. tool is the tool
+// name so we can add shape-specific decorations: for read we
+// append the requested line range (e.g. "path:1-200") pulled
+// from the offset/limit args, which is useful context at a
+// glance without expanding the result body. Other tools keep
+// the legacy "path or command, truncated" shape.
+//
+// The truncation width defaults to 60 cells but can be tuned via
+// the PUDDLE_TOOL_ARG_WIDTH environment variable (see toolArgWidth).
+//
+// Exported because the interactive mode pre-populates the
+// ToolCallView.Args field with this value as soon as the tool
+// call is announced, so the live overlay's header matches what
+// the finalised transcript will later render.
+func ShortArgs(tool string, raw json.RawMessage) string {
+	width := toolArgWidth()
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return ""
+	}
+	x, ok := v.(map[string]any)
+	if !ok {
+		b, _ := json.Marshal(v)
+		s := oneLineToolLabel(string(b))
+		if len(s) > width {
+			s = s[:width-3] + "..."
+		}
+		return s
+	}
+	var primary string
+	for _, k := range []string{"path", "file_path", "command"} {
+		if s, ok := x[k].(string); ok {
+			primary = s
+			break
+		}
+	}
+	if primary == "" {
+		b, _ := json.Marshal(v)
+		s := oneLineToolLabel(string(b))
+		if len(s) > width {
+			s = s[:width-3] + "..."
+		}
+		return s
+	}
+	primary = oneLineToolLabel(primary)
+
+	// Tool-specific decoration. Only the read tool gets a range
+	// suffix for now; other tools just truncate the primary arg.
+	suffix := ""
+	switch strings.ToLower(tool) {
+	case "read":
+		start := 1
+		if n, ok := toInt(x["offset"]); ok && n >= 1 {
+			start = n
+		}
+		if lim, ok := toInt(x["limit"]); ok && lim > 0 {
+			end := start + lim - 1
+			suffix = fmt.Sprintf(":%d-%d", start, end)
+		} else if start > 1 {
+			suffix = fmt.Sprintf(":%d-", start)
+		}
+	}
+
+	// Truncate the primary arg leaving room for the suffix so the
+	// range stays visible even on absurdly long paths.
+	max := width - len(suffix)
+	if max < 10 {
+		max = 10
+	}
+	if len(primary) > max {
+		primary = primary[:max-3] + "..."
+	}
+	return primary + suffix
+}
+
+// toInt coerces a json.Unmarshal'd number (float64) or a string
+// containing a number into an int. Returns ok=false if the value
+// is neither. Used by shortArgs to survive model quirks where
+// numeric args come back as strings.
+func toInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int(n), true
+	case int:
+		return n, true
+	case string:
+		i, err := strconv.Atoi(strings.TrimSpace(n))
+		if err != nil {
+			return 0, false
+		}
+		return i, true
+	}
+	return 0, false
+}
+
+func collectText(blocks []provider.Content) string {
+	var sb strings.Builder
+	for _, b := range blocks {
+		if tb, ok := b.(provider.TextBlock); ok {
+			if sb.Len() > 0 {
+				sb.WriteString("\n")
+			}
+			sb.WriteString(tb.Text)
+		}
+	}
+	return sb.String()
+}
+
+func truncateLines(s string, n int) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) <= n {
+		return s
+	}
+	return strings.Join(lines[:n], "\n") + "\n  ... (" + fmt.Sprintf("%d", len(lines)-n) + " more)"
+}
+
+// renderCompactionBlock renders a compaction summary as a distinct
+// visual block in the chat. When collapsed it shows a one-line label
+// with the pre-compaction token count; when expanded (ctrl+o) it
+// shows the full summary text.
+func (v *View) renderCompactionBlock(m provider.Message, width int) []string {
+	th := v.Theme
+	const indent = "    "
+
+	tokens := m.Meta["tokens_before"]
+	if tokens == "" {
+		tokens = "?"
+	}
+
+	if v.ExpandAll {
+		var lines []string
+		header := th.FG256(th.Muted, fmt.Sprintf("compacted from ~%s tokens", tokens))
+		lines = append(lines, indent+header)
+		lines = append(lines, "")
+		for _, c := range m.Content {
+			if tb, ok := c.(provider.TextBlock); ok {
+				text := tb.Text
+				if idx := strings.Index(text, "\n\n"); idx >= 0 && strings.HasPrefix(text, "## Context Summary") {
+					text = text[idx+2:]
+				}
+				md := RenderMarkdown(text, th, width-4)
+				for _, l := range strings.Split(md, "\n") {
+					if len(l) > 0 && l[0] == FlushLeftSentinel {
+						l = l[1:]
+					}
+					lines = append(lines, indent+l)
+				}
+			}
+		}
+		return lines
+	}
+
+	// Collapsed: single line, no banner.
+	line := th.FG256(th.Muted, fmt.Sprintf("compacted from ~%s tokens (ctrl+o to expand)", tokens))
+	return []string{indent + line}
+}
+
+// StatusBarParams groups the many bits of state the status bar needs.
+// Grew from a flat argument list once we settled on the layout.
+type StatusBarParams struct {
+	Theme      Theme
+	Provider   string
+	Model      string
+	Reasoning  string // "" means thinking off
+	Busy       bool
+	BusyPrefix string // spinner + funny line when busy
+	CWD        string
+	Locked     bool // sandbox on?
+	NoYolo     bool // confirmation mode enabled?
+
+	// Cumulative session usage and cost.
+	Usage provider.Usage
+	// Subscription is true when the credential is an OAuth token (claude
+	// pro/max, chatgpt plus/pro) rather than a paid api key. We still
+	// compute a cost for visibility and append "(sub)" so the user
+	// knows no real money moved.
+	Subscription bool
+
+	// Last turn's input+cache tokens (approximates current live context).
+	ContextUsed int
+	ContextMax  int // model's context window; 0 disables the percentage
+
+	// AutoCompacting is true when the agent is currently running a
+	// model-triggered condense pass. Surfaces as "(auto)" after the
+	// context percentage so it's clear where the spinner is coming from.
+	AutoCompacting bool
+
+	// Telegram true when the telegram bridge is connected. Adds a
+	// small "- tg -" tag to the cwd line so the user can tell at a
+	// glance that dms are being mirrored into this session.
+	Telegram bool
+
+	Cols int // terminal width; drives right-alignment of cwd
+}
+
+// StatusBar builds the status shown above the editor. Always returns
+// two lines when a cwd is provided: the stats on the first line, the
+// cwd on its own line below, indented to match the stats column. This
+// keeps the status bar stable across terminal resizes (the cwd never
+// jumps from right-aligned-on-line-1 to flush-left-on-line-2) and
+// makes a long cwd safe at any width.
+//
+// Layout:
+//
+//	<busyPrefix>  (provider) model  stats   <- line 1
+//	  cwd                                   <- line 2 (2-space indent)
+//
+// The old "ctrl+c exit - /help" / "esc cancel" hint is gone entirely.
+// The slash-command popup and the queued/sliding-in chips already
+// cover the discoverability of those keybindings.
+func StatusBar(p StatusBarParams) []string {
+	th := p.Theme
+
+	// Token stats: only include each segment when non-zero. Keeps
+	// the bar compact on brand-new sessions.
+	var stats []string
+	if p.Usage.InputTokens > 0 {
+		stats = append(stats, fmt.Sprintf("↑%s", formatTokens(p.Usage.InputTokens)))
+	}
+	if p.Usage.OutputTokens > 0 {
+		stats = append(stats, fmt.Sprintf("↓%s", formatTokens(p.Usage.OutputTokens)))
+	}
+	if p.Usage.CacheReadTokens > 0 {
+		stats = append(stats, fmt.Sprintf("R%s", formatTokens(p.Usage.CacheReadTokens)))
+	}
+	if p.Usage.CacheWriteTokens > 0 {
+		stats = append(stats, fmt.Sprintf("W%s", formatTokens(p.Usage.CacheWriteTokens)))
+	}
+
+	// Cost: always show the dollar value computed from token counts,
+	// even on subscription. Lets you see what the equivalent api cost
+	// would be (handy for gauging subscription value). Append "(sub)"
+	// only as a hint that no real money moved.
+	var costStr string
+	if p.Usage.CostUSD > 0 || p.Subscription {
+		costStr = fmt.Sprintf("$%.3f", p.Usage.CostUSD)
+		if p.Subscription {
+			costStr += " (sub)"
+		}
+	}
+	if costStr != "" {
+		stats = append(stats, costStr)
+	}
+
+	// Context %. Color-coded: yellow >70, red >90.
+	ctx, ctxColor := contextUsage(th, p.ContextUsed, p.ContextMax)
+	if ctx != "" {
+		if p.AutoCompacting {
+			ctx += " (auto)"
+		}
+		stats = append(stats, th.FG256(ctxColor, ctx))
+	}
+
+	// Layout uses exactly 2 spaces of horizontal padding everywhere:
+	//   2 spaces  (openai) gpt-5.4  $0.000 (sub) 0.0%/400k  ~/Sites/puddle
+	// matches the editor prompt's left inset so the bar lines up
+	// vertically with the conversation column.
+	const pad = "  " // 2 spaces
+
+	left := fmt.Sprintf("(%s) %s", p.Provider, p.Model)
+	thinking := thinkingLevelLabel(p.Reasoning)
+	thinkingText := ""
+	if thinking != "" {
+		thinkingText = "thinking: " + thinking
+	}
+	statsText := strings.Join(stats, " ")
+	middleParts := make([]string, 0, 2)
+	if thinkingText != "" {
+		middleParts = append(middleParts, thinkingText)
+	}
+	if statsText != "" {
+		middleParts = append(middleParts, statsText)
+	}
+	middle := strings.Join(middleParts, "  ")
+
+	var leftBuilder strings.Builder
+	if p.BusyPrefix != "" {
+		// Don't re-color the payload itself — the caller already set
+		// fg colors on the spinner glyph, message, and elapsed
+		// segments. Wrapping the whole thing here would override
+		// those choices. The pad itself needs no color (it's spaces).
+		leftBuilder.WriteString(pad + p.BusyPrefix)
+		// Exactly one pad (2 spaces) between the busy segment and
+		// the provider/model block. The leading pad above covers
+		// the left indent.
+		leftBuilder.WriteString(pad)
+	} else {
+		// Idle path: a single pad of left inset so the line
+		// aligns with the conversation column on its left edge
+		// ("  you" / "  puddle" message markers). Without the busy
+		// prefix there's no trailing separator to double-pad.
+		leftBuilder.WriteString(pad)
+	}
+	leftBuilder.WriteString(th.FG256(th.Muted, left))
+	if middle != "" {
+		leftBuilder.WriteString(pad)
+		// Highlight the opt-in max tier; other status information stays muted.
+		leftBuilder.WriteString(th.FG256(thinkingStatusColor(th, thinkingText), middle))
+	}
+
+	cwd := shortenHome(p.CWD)
+	tags := ""
+	if p.NoYolo {
+		tags += "yolo mode disabled "
+	}
+	if p.Locked {
+		tags += "jailed "
+	}
+	if p.Telegram {
+		tags += "telegram connected "
+	}
+	if tags != "" && cwd != "" {
+		cwd = tags + "- " + cwd
+	}
+
+	primary := leftBuilder.String()
+
+	// On narrow terminals the single line wraps badly. If the visible
+	// width exceeds cols and we have a busy prefix, split: keep the
+	// busy prefix on line 1, then put model and (if still needed)
+	// stats on their own rows. This mirrors the idle split below.
+	if p.Cols > 0 && p.BusyPrefix != "" && visibleWidth(primary) > p.Cols {
+		busyLine := pad + p.BusyPrefix
+		modelLine := pad + th.FG256(th.Muted, left)
+		lines := []string{busyLine}
+		if middle != "" && visibleWidth(modelLine+pad+th.FG256(th.Muted, middle)) > p.Cols {
+			lines = appendWrappedStatusLines(lines, th, pad, left, thinkingText, statsText, p.Cols)
+		} else {
+			var infoBuilder strings.Builder
+			infoBuilder.WriteString(modelLine)
+			if middle != "" {
+				infoBuilder.WriteString(pad)
+				infoBuilder.WriteString(th.FG256(thinkingStatusColor(th, thinkingText), middle))
+			}
+			lines = append(lines, infoBuilder.String())
+		}
+		if cwd != "" {
+			lines = append(lines, pad+th.FG256(th.Muted, cwd))
+		}
+		return lines
+	}
+
+	// Idle narrow split: keep provider/model on the first status line,
+	// move usage/cost/context stats to the next, then cwd below. This
+	// avoids the terminal's hard wrap cutting the stats or pushing cwd
+	// into an awkward position on small widths.
+	if p.Cols > 0 && p.BusyPrefix == "" && middle != "" && visibleWidth(primary) > p.Cols {
+		var lines []string
+		lines = appendWrappedStatusLines(lines, th, pad, left, thinkingText, statsText, p.Cols)
+		if cwd != "" {
+			lines = append(lines, pad+th.FG256(th.Muted, cwd))
+		}
+		return lines
+	}
+
+	if cwd == "" {
+		return []string{primary}
+	}
+
+	// Second line: indent with the same 2-space pad so the cwd lines
+	// up under the "(provider)" column on line 1.
+	cwdRendered := pad + th.FG256(th.Muted, cwd)
+	return []string{primary, cwdRendered}
+}
+
+func appendWrappedStatusLines(lines []string, th Theme, pad, modelText, thinkingText, statsText string, cols int) []string {
+	modelLine := pad + th.FG256(th.Muted, modelText)
+	if thinkingText == "" {
+		lines = append(lines, modelLine)
+		if statsText != "" {
+			lines = append(lines, pad+th.FG256(th.Muted, statsText))
+		}
+		return lines
+	}
+
+	modelThinkingPlain := pad + modelText + pad + thinkingText
+	thinkingColor := thinkingStatusColor(th, thinkingText)
+	if cols <= 0 || visibleWidth(modelThinkingPlain) <= cols {
+		lines = append(lines, pad+th.FG256(thinkingColor, modelText+pad+thinkingText))
+	} else {
+		lines = append(lines, modelLine)
+		lines = append(lines, pad+th.FG256(thinkingColor, thinkingText))
+	}
+	if statsText != "" {
+		lines = append(lines, pad+th.FG256(th.Muted, statsText))
+	}
+	return lines
+}
+
+func thinkingStatusColor(th Theme, thinkingText string) int {
+	if strings.HasSuffix(thinkingText, ": max") {
+		return th.ThinkingMax
+	}
+	return th.Muted
+}
+
+func thinkingLevelLabel(level string) string {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "", "off", "none", "no", "false", "disabled":
+		return ""
+	case "minimum", "minimal", "min":
+		return "minimal"
+	case "maximum", "xhigh":
+		return "xhigh"
+	case "max":
+		return "max"
+	default:
+		return strings.ToLower(strings.TrimSpace(level))
+	}
+}
+
+// contextUsage renders the "N%/ctxMax" fragment, returning the
+// rendered string plus the colour to wrap it in.
+func contextUsage(th Theme, used, max int) (string, int) {
+	if max <= 0 {
+		if used <= 0 {
+			return "", th.Muted
+		}
+		return formatTokens(used), th.Muted
+	}
+	pct := float64(used) / float64(max) * 100
+	text := fmt.Sprintf("%.1f%%/%s", pct, formatTokens(max))
+	switch {
+	case pct > 90:
+		return text, th.Error
+	case pct > 70:
+		return text, th.Warning
+	}
+	return text, th.Muted
+}
+
+// formatTokens footer formatter:
+//
+//	< 1000      -> "42"
+//	< 10_000    -> "2.7k"
+//	< 1_000_000 -> "35k"
+//	< 10M       -> "1.1M"
+//	else        -> "12M"
+func formatTokens(n int) string {
+	switch {
+	case n < 0:
+		return "0"
+	case n < 1000:
+		return fmt.Sprintf("%d", n)
+	case n < 10000:
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	case n < 1_000_000:
+		return fmt.Sprintf("%dk", (n+500)/1000)
+	case n < 10_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	default:
+		return fmt.Sprintf("%dM", (n+500_000)/1_000_000)
+	}
+}
+
+// shortenHome replaces the user's $HOME prefix with "~" for readability.
+func shortenHome(p string) string {
+	if p == "" {
+		return ""
+	}
+	home := osUserHome()
+	if home == "" {
+		return p
+	}
+	if p == home {
+		return "~"
+	}
+	if strings.HasPrefix(p, home+"/") {
+		return "~" + p[len(home):]
+	}
+	return p
+}
+
+// osUserHome is a tiny wrapper around os.UserHomeDir so tests can mock it.
+var osUserHome = func() string {
+	if h, err := osUserHomeDir(); err == nil {
+		return h
+	}
+	return ""
+}

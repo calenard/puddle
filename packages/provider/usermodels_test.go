@@ -1,0 +1,82 @@
+package provider
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestSetUserModelsPreservesCatalogWithoutLiveOverlay(t *testing.T) {
+	SetLiveModels(nil)
+	t.Cleanup(func() { SetLiveModels(nil) })
+
+	SetUserModels([]Model{{
+		Provider:    "custom-test",
+		ID:          "custom-model",
+		DisplayName: "Custom Model",
+		Source:      "user",
+	}})
+
+	if _, err := FindModel("anthropic", "claude-sonnet-4-5"); err != nil {
+		t.Fatalf("built-in model hidden after SetUserModels: %v", err)
+	}
+	if _, err := FindModel("custom-test", "custom-model"); err != nil {
+		t.Fatalf("custom model missing after SetUserModels: %v", err)
+	}
+}
+
+func TestLoadUserModelsRegistersModelLevelBaseURLCustomProvider(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "models.json")
+	if err := os.WriteFile(path, []byte(`{
+		"providers": {
+			"model-base-only": {
+				"models": [
+					{"id": "m1", "baseUrl": "https://llm.example.com/v1"}
+				]
+			}
+		}
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	models, warnings := LoadUserModelsWithWarnings(path)
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+	if len(models) != 1 {
+		t.Fatalf("models = %d, want 1", len(models))
+	}
+	cfg, ok := CustomProviders()["model-base-only"]
+	if !ok {
+		t.Fatal("custom provider was not registered")
+	}
+	if cfg.API != "openai" {
+		t.Fatalf("api = %q, want openai", cfg.API)
+	}
+}
+
+func TestLoadUserModelsWarnsOnUnknownAPI(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "models.json")
+	if err := os.WriteFile(path, []byte(`{
+		"providers": {
+			"bad-api": {
+				"baseUrl": "https://llm.example.com/v1",
+				"api": "anthropic-message",
+				"models": [{"id": "m1"}]
+			}
+		}
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, warnings := LoadUserModelsWithWarnings(path)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "unknown api") {
+		t.Fatalf("warnings = %v, want unknown api warning", warnings)
+	}
+	if cfg := CustomProviders()["bad-api"]; cfg.API != "openai" {
+		t.Fatalf("api = %q, want openai", cfg.API)
+	}
+}

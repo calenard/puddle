@@ -1,0 +1,22 @@
+{
+  "name": "custom-spinner",
+  "description": "An alternative spinner for puddle that only displays a single spinner text.",
+  "colors": {
+    "dark": {
+      "spinner_frames": [
+        "\u28FE",
+        "\u28FD",
+        "\u28FB",
+        "\u28BF",
+        "\u287F",
+        "\u28DF",
+        "\u28EF",
+        "\u28F7"
+      ],
+      "spinner_messages": [
+        "working"
+      ],
+      "spinner_interval_ms": 120
+    }
+  }
+}

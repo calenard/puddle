@@ -1,0 +1,259 @@
+package provider
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"strings"
+)
+
+// UserModelsFile is the JSON format for user-defined models.
+// Place a models.json in $PUDDLE_HOME to add models that aren't in the
+// baked-in catalog or to override catalog entries. Custom providers
+// (not in the built-in set) may specify a baseUrl and api format at
+// the provider level:
+//
+//	{
+//	  "providers": {
+//	    "my-company": {
+//	      "baseUrl": "https://llm.mycompany.com/v1",
+//	      "api": "openai",
+//	      "models": [
+//	        {
+//	          "id": "company-llm-v2",
+//	          "name": "Company LLM v2",
+//	          "contextWindow": 128000,
+//	          "maxTokens": 32000
+//	        }
+//	      ]
+//	    }
+//	  }
+//	}
+type UserModelsFile struct {
+	Providers map[string]UserProvider `json:"providers"`
+}
+
+// UserProvider groups models under a provider key.
+type UserProvider struct {
+	BaseURL string      `json:"baseUrl,omitempty"`
+	API     string      `json:"api,omitempty"` // "openai" (default) or "anthropic"
+	Models  []UserModel `json:"models"`
+}
+
+// CustomProviderConfig holds runtime config for a user-defined provider
+// that isn't part of the built-in catalog.
+type CustomProviderConfig struct {
+	BaseURL string
+	API     string // "openai" or "anthropic"
+}
+
+var customProviders = map[string]CustomProviderConfig{}
+
+// CustomProviders returns the set of user-defined providers loaded from
+// models.json. Keys are provider names; values carry the base URL and
+// wire-format hint.
+func CustomProviders() map[string]CustomProviderConfig { return customProviders }
+
+// UserModel is a single model entry in the user's models.json.
+type UserModel struct {
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	Reasoning       bool     `json:"reasoning"`
+	ContextWindow   int      `json:"contextWindow"`
+	MaxTokens       int      `json:"maxTokens"`
+	PriceInput      float64  `json:"priceInput"`
+	PriceOutput     float64  `json:"priceOutput"`
+	PriceCacheRead  float64  `json:"priceCacheRead"`
+	PriceCacheWrite float64  `json:"priceCacheWrite"`
+	BaseURL         string   `json:"baseUrl,omitempty"`
+	Input           []string `json:"input"` // informational only
+	API             string   `json:"api"`   // informational only
+}
+
+// LoadUserModels reads a models.json file and returns the models
+// converted to the internal Model type. Returns nil on any error
+// (missing file, bad JSON, etc.) so the caller can treat it as
+// optional without error handling.
+func LoadUserModels(path string) []Model {
+	models, _ := LoadUserModelsWithWarnings(path)
+	return models
+}
+
+// LoadUserModelsWithWarnings is like LoadUserModels but also returns
+// human-readable warnings about every recoverable issue it found in
+// the file (unknown provider id, empty model id, malformed JSON for a
+// single provider block, etc.). The caller is responsible for
+// surfacing the warnings; the file is never rejected wholesale unless
+// the top-level JSON itself fails to parse.
+func LoadUserModelsWithWarnings(path string) ([]Model, []string) {
+	var warnings []string
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, nil
+	}
+	var file UserModelsFile
+	if err := json.Unmarshal(data, &file); err != nil {
+		warnings = append(warnings, fmt.Sprintf("models.json: parse error: %v (file ignored)", err))
+		return nil, warnings
+	}
+
+	var out []Model
+	// Reset custom providers on each load so removed entries don't linger.
+	customProviders = map[string]CustomProviderConfig{}
+	for providerName, prov := range file.Providers {
+		if providerName == "" {
+			warnings = append(warnings, "models.json: empty provider key skipped")
+			continue
+		}
+		// Normalize legacy transport aliases to their provider names.
+		normalized := providerName
+		switch providerName {
+		case "openai-responses":
+			normalized = "openai"
+		case "anthropic-messages":
+			normalized = "anthropic"
+		case "moonshot", "moonshot-ai", "kimi-code":
+			normalized = "kimi"
+		case "deepseek-chat", "deepseek-ai":
+			normalized = "deepseek"
+		}
+
+		// Register custom providers that carry endpoint metadata either at
+		// the provider level or on any model. Model-level baseUrl-only
+		// configs still need a custom provider entry so Resolve/NewClient
+		// accept the provider name and choose a wire format.
+		hasModelBaseURL := false
+		for _, um := range prov.Models {
+			if um.BaseURL != "" {
+				hasModelBaseURL = true
+				break
+			}
+		}
+		if prov.BaseURL != "" || prov.API != "" || hasModelBaseURL {
+			api := strings.ToLower(strings.TrimSpace(prov.API))
+			if api == "" {
+				api = "openai"
+			}
+			// Normalize common aliases for the wire format.
+			switch api {
+			case "openai-completions", "openai-chat", "chat", "openai":
+				api = "openai"
+			case "anthropic-messages", "messages", "anthropic":
+				api = "anthropic"
+			default:
+				warnings = append(warnings, fmt.Sprintf("models.json: provider %q has unknown api %q; defaulting to openai", providerName, prov.API))
+				api = "openai"
+			}
+			customProviders[normalized] = CustomProviderConfig{
+				BaseURL: prov.BaseURL,
+				API:     api,
+			}
+		}
+
+		for i, um := range prov.Models {
+			if um.ID == "" {
+				warnings = append(warnings, fmt.Sprintf("models.json: provider %q entry #%d has empty id; skipped", providerName, i))
+				continue
+			}
+			if um.ContextWindow < 0 || um.MaxTokens < 0 {
+				warnings = append(warnings, fmt.Sprintf("models.json: %s/%s has negative contextWindow/maxTokens; clamped to 0", normalized, um.ID))
+				if um.ContextWindow < 0 {
+					um.ContextWindow = 0
+				}
+				if um.MaxTokens < 0 {
+					um.MaxTokens = 0
+				}
+			}
+			// Propagate provider-level BaseURL to models without their own.
+			modelBaseURL := um.BaseURL
+			if modelBaseURL == "" {
+				modelBaseURL = prov.BaseURL
+			}
+			m := Model{
+				Provider:        normalized,
+				ID:              um.ID,
+				DisplayName:     um.Name,
+				ContextWindow:   um.ContextWindow,
+				MaxOutput:       um.MaxTokens,
+				Reasoning:       um.Reasoning,
+				PriceInput:      um.PriceInput,
+				PriceOutput:     um.PriceOutput,
+				PriceCacheRead:  um.PriceCacheRead,
+				PriceCacheWrite: um.PriceCacheWrite,
+				BaseURL:         modelBaseURL,
+				Source:          "user",
+			}
+			if m.DisplayName == "" {
+				m.DisplayName = m.ID
+			}
+			out = append(out, m)
+		}
+	}
+	return out, warnings
+}
+
+// SetUserModels merges user-defined models into the active catalog.
+// User models take precedence over both the baked-in catalog and
+// live-discovered models.
+func SetUserModels(models []Model) {
+	if len(models) == 0 {
+		return
+	}
+	activeMu.Lock()
+	defer activeMu.Unlock()
+
+	// Ensure the active overlay starts from the full built-in catalog
+	// when no live/cache overlay has been applied. Otherwise a fresh
+	// install with only models.json would hide every built-in model.
+	if !activeSet || active == nil {
+		active = append([]Model(nil), Catalog...)
+		activeSet = true
+	}
+
+	// Build index of current active models.
+	byKey := func(p, id string) string { return p + "/" + id }
+	index := make(map[string]int, len(active))
+	for i, m := range active {
+		index[byKey(m.Provider, m.ID)] = i
+	}
+
+	for _, um := range models {
+		k := byKey(um.Provider, um.ID)
+		if idx, ok := index[k]; ok {
+			// Override existing entry but keep prices from user if
+			// they provided them, otherwise keep catalog prices.
+			existing := active[idx]
+			if um.PriceInput > 0 {
+				existing.PriceInput = um.PriceInput
+			}
+			if um.PriceOutput > 0 {
+				existing.PriceOutput = um.PriceOutput
+			}
+			if um.PriceCacheRead > 0 {
+				existing.PriceCacheRead = um.PriceCacheRead
+			}
+			if um.PriceCacheWrite > 0 {
+				existing.PriceCacheWrite = um.PriceCacheWrite
+			}
+			if um.DisplayName != "" {
+				existing.DisplayName = um.DisplayName
+			}
+			if um.ContextWindow > 0 {
+				existing.ContextWindow = um.ContextWindow
+			}
+			if um.MaxOutput > 0 {
+				existing.MaxOutput = um.MaxOutput
+			}
+			existing.Reasoning = um.Reasoning
+			if um.BaseURL != "" {
+				existing.BaseURL = um.BaseURL
+			}
+			existing.Source = "user"
+			existing.Speculative = false
+			active[idx] = existing
+		} else {
+			// New model not in catalog.
+			active = append(active, um)
+		}
+	}
+}

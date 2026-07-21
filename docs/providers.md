@@ -1,0 +1,247 @@
+# puddle providers
+
+puddle ships with built-in providers and a model catalog. You can select models
+with `/model`, list them with `puddle --list-models`, and add private models in
+`$PUDDLE_HOME/models.json`.
+
+## Login methods
+
+Use `/login` in interactive mode.
+
+- `api key`: stores an API key in `$PUDDLE_HOME/auth.json` when the provider uses a normal key.
+- `subscription`: stores OAuth credentials for subscription-backed providers.
+
+Use `/logout` to remove stored credentials.
+
+Some providers need more than a single pasted key. For those providers,
+`/login` shows setup instructions instead of opening a localhost browser form.
+This avoids broken browser flows in SSH, containers, and `kubectl exec`
+sessions.
+
+Setup-instruction providers:
+
+- Amazon Bedrock
+- Google Vertex AI
+- Cloudflare Workers AI
+- Cloudflare AI Gateway
+- Azure OpenAI Responses
+
+## Subscription providers
+
+These providers support subscription login:
+
+| Provider | Notes |
+| --- | --- |
+| Anthropic | Claude Pro/Max OAuth credentials. |
+| OpenAI Codex | ChatGPT Plus/Pro Codex subscription route. Separate from the OpenAI API-key provider. |
+| Kimi | Kimi subscription login. |
+| GitHub Copilot | GitHub Copilot token flow. |
+
+OAuth tokens are stored in `$PUDDLE_HOME/auth.json` and refreshed when refresh is
+available.
+
+## API-key providers
+
+These providers can use environment variables. Simple API-key providers can
+also be configured through `/login`. Providers that require extra cloud setup
+show instructions and should be configured with environment variables.
+
+| Provider | Environment variable | Stored key |
+| --- | --- | --- |
+| Anthropic | `ANTHROPIC_API_KEY` | `anthropic` |
+| OpenAI | `OPENAI_API_KEY` | `openai` |
+| OpenAI Responses | `OPENAI_API_KEY` | `openai-responses` |
+| Kimi | `KIMI_API_KEY` or `MOONSHOT_API_KEY` | `kimi` |
+| Google Gemini | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | `google` |
+| DeepSeek | `DEEPSEEK_API_KEY` | `deepseek` |
+| Moonshot AI | `MOONSHOT_API_KEY` | `moonshotai` |
+| Moonshot AI China | `MOONSHOT_API_KEY` | `moonshotai-cn` |
+| Groq | `GROQ_API_KEY` | `groq` |
+| xAI | `XAI_API_KEY` | `xai` |
+| Cerebras | `CEREBRAS_API_KEY` | `cerebras` |
+| Together AI | `TOGETHER_API_KEY` | `together` |
+| Hugging Face | `HF_TOKEN` | `huggingface` |
+| OpenRouter | `OPENROUTER_API_KEY` | `openrouter` |
+| Mistral | `MISTRAL_API_KEY` | `mistral` |
+| ZAI | `ZAI_API_KEY` | `zai` |
+| Xiaomi MiMo | `XIAOMI_API_KEY` | `xiaomi` |
+| Xiaomi Token Plan Amsterdam | `XIAOMI_TOKEN_PLAN_AMS_API_KEY` | `xiaomi-token-plan-ams` |
+| Xiaomi Token Plan China | `XIAOMI_TOKEN_PLAN_CN_API_KEY` | `xiaomi-token-plan-cn` |
+| Xiaomi Token Plan Singapore | `XIAOMI_TOKEN_PLAN_SGP_API_KEY` | `xiaomi-token-plan-sgp` |
+| MiniMax | `MINIMAX_API_KEY` | `minimax` |
+| MiniMax China | `MINIMAX_CN_API_KEY` or `MINIMAX_API_KEY` | `minimax-cn` |
+| Fireworks | `FIREWORKS_API_KEY` | `fireworks` |
+| Vercel AI Gateway | `AI_GATEWAY_API_KEY` | `vercel-ai-gateway` |
+| OpenCode Zen | `OPENCODE_API_KEY` | `opencode` |
+| OpenCode Go | `OPENCODE_API_KEY` | `opencode-go` |
+| GitHub Copilot token | `COPILOT_GITHUB_TOKEN` or `GITHUB_COPILOT_TOKEN` | `github-copilot` |
+| Cloudflare Workers AI | `CLOUDFLARE_API_KEY` | `cloudflare-workers-ai` |
+| Cloudflare AI Gateway | `CLOUDFLARE_API_KEY` | `cloudflare-ai-gateway` |
+| Azure OpenAI Responses | `AZURE_OPENAI_API_KEY` | `azure-openai-responses` |
+
+Example:
+
+```bash
+export OPENROUTER_API_KEY=...
+puddle --provider openrouter
+```
+
+## Cloud providers
+
+### Amazon Bedrock
+
+Bedrock is configured with AWS credentials, not a generic puddle API-key entry.
+Use one of these credential sources:
+
+```bash
+# AWS profile
+export AWS_PROFILE=your-profile
+
+# IAM access keys
+export AWS_ACCESS_KEY_ID=AKIA...
+export AWS_SECRET_ACCESS_KEY=...
+export AWS_SESSION_TOKEN=... # only for temporary credentials
+
+# Bedrock API key bearer token
+export AWS_BEARER_TOKEN_BEDROCK=bedrock-api-key-...
+
+# Region
+export AWS_REGION=us-east-1
+```
+
+ECS task roles, IRSA, and other AWS SDK credential-chain sources are also
+supported.
+
+Example:
+
+```bash
+AWS_BEARER_TOKEN_BEDROCK=bedrock-api-key-... AWS_REGION=us-east-1 \
+  puddle --provider amazon-bedrock --model anthropic.claude-sonnet-4-5-20250929-v1:0
+```
+
+Some Bedrock models require regional inference-profile IDs for on-demand
+throughput, such as `us.` or `eu.` prefixed model IDs. puddle rewrites known
+families automatically where possible. Explicit profile IDs and ARNs are left
+unchanged.
+
+### Google Vertex AI
+
+Vertex can use a Google API key when available:
+
+```bash
+export GOOGLE_CLOUD_API_KEY=...
+puddle --provider google-vertex
+```
+
+For service-account or application-default credentials, set the standard
+Google environment variables used by your deployment.
+
+### Cloudflare AI Gateway
+
+Cloudflare AI Gateway needs a Cloudflare token plus account and gateway IDs:
+
+```bash
+export CLOUDFLARE_API_KEY=...
+export CLOUDFLARE_ACCOUNT_ID=...
+export CLOUDFLARE_GATEWAY_ID=...
+puddle --provider cloudflare-ai-gateway
+```
+
+### Cloudflare Workers AI
+
+Workers AI needs a Cloudflare token and account ID:
+
+```bash
+export CLOUDFLARE_API_KEY=...
+export CLOUDFLARE_ACCOUNT_ID=...
+puddle --provider cloudflare-workers-ai
+```
+
+### Azure OpenAI Responses
+
+```bash
+export AZURE_OPENAI_API_KEY=...
+export AZURE_OPENAI_BASE_URL=https://your-resource.openai.azure.com
+export AZURE_OPENAI_API_VERSION=v1 # optional, v1 is the default
+puddle --provider azure-openai-responses
+```
+
+The provider uses Azure's Responses API. If deployment names differ from puddle
+model IDs, map them without changing the catalog:
+
+```bash
+export AZURE_OPENAI_DEPLOYMENT_NAME_MAP='gpt-5.6-luna=luna-preview,gpt-5.6-sol=sol-preview'
+```
+
+## Auth file
+
+Credentials are stored in `$PUDDLE_HOME/auth.json` with user-only permissions
+when puddle creates the file.
+
+Example:
+
+```json
+{
+  "anthropic": { "api_key": "sk-ant-..." },
+  "openai": { "api_key": "sk-..." },
+  "google": { "api_key": "..." },
+  "additional_api_key_creds": {
+    "openrouter": { "api_key": "..." },
+    "mistral": { "api_key": "..." }
+  }
+}
+```
+
+The top-level keys are used for providers with dedicated credential fields.
+Other API-key providers are stored under `additional_api_key_creds`. Prefer
+`/login` so puddle writes the correct schema.
+
+## Custom providers and models
+
+Use `$PUDDLE_HOME/models.json` for private models, deployment aliases, local
+servers, or OpenAI-compatible gateways that are not in the built-in catalog.
+User entries override built-in entries with the same provider and model ID, and
+adding a `models.json` no longer hides the built-in catalog: your entries are
+merged on top of the baked-in and live-discovered models.
+
+A top-level provider key that is not a built-in id defines a custom provider.
+Give it a provider-level `baseUrl` and an `api` wire format (`openai` for
+OpenAI-compatible chat completions, the default, or `anthropic` for the
+Anthropic messages API). A model-level `baseUrl` overrides the provider-level
+one for that model, and an unknown `api` value falls back to `openai` with a
+warning.
+
+```json
+{
+  "providers": {
+    "my-company": {
+      "baseUrl": "https://llm.mycompany.com/v1",
+      "api": "openai",
+      "models": [
+        { "id": "company-llm-v2", "name": "Company LLM v2" }
+      ]
+    }
+  }
+}
+```
+
+Custom providers are first-class: they appear in `--list-models`, `/model`, and
+`/login`. `models.json` never stores secrets. Supply the key through `/login`,
+`--api-key`, or a derived environment variable in upper snake case, so
+`my-company` reads `MY_COMPANY_API_KEY`. Because many self-hosted gateways do
+not expose a model-list endpoint, custom provider keys are accepted and stored
+without a verification probe; an invalid key surfaces on the first model call.
+
+## Credential resolution
+
+For each request, puddle checks credentials in this order:
+
+1. Explicit CLI key, such as `--api-key`.
+2. Provider-specific environment variables (including derived custom-provider
+   variables such as `MY_COMPANY_API_KEY`).
+3. `$PUDDLE_HOME/auth.json`, including custom provider keys saved by `/login`.
+
+`models.json` itself never stores credentials; it only describes models and
+their endpoints.
+
+Bedrock then uses the AWS SDK credential chain for the actual request.

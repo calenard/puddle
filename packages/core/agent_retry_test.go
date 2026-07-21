@@ -1,0 +1,160 @@
+package core
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/puddle-dev/puddle/packages/provider"
+)
+
+type retryFakeClient struct {
+	calls int32
+}
+
+func (c *retryFakeClient) Name() string { return "retry-fake" }
+
+func (c *retryFakeClient) Stream(ctx context.Context, req provider.Request) (<-chan provider.Event, error) {
+	call := atomic.AddInt32(&c.calls, 1)
+	out := make(chan provider.Event, 4)
+	go func() {
+		defer close(out)
+		out <- provider.EventStart{Provider: "retry-fake", Model: req.Model}
+		if call == 1 {
+			out <- provider.EventDone{Stop: provider.StopError, Err: fmt.Errorf("anthropic overloaded_error: Overloaded")}
+			return
+		}
+		out <- provider.EventTextDelta{Delta: "ok"}
+		out <- provider.EventDone{Stop: provider.StopEnd, Message: provider.Message{
+			Role:    provider.RoleAssistant,
+			Content: []provider.Content{provider.TextBlock{Text: "ok"}},
+		}}
+	}()
+	return out, nil
+}
+
+func TestAgentRetriesOverloadedStreamError(t *testing.T) {
+	client := &retryFakeClient{}
+	a := NewAgent(client, "fake-model", "system", Registry{})
+	a.RetryBaseDelay = time.Millisecond
+
+	var turnErrs []string
+	err := a.Prompt(context.Background(), "hello", nil, func(ev AgentEvent) {
+		if e, ok := ev.(EvTurnEnd); ok && e.Err != nil {
+			turnErrs = append(turnErrs, e.Err.Error())
+		}
+	})
+	if err != nil {
+		t.Fatalf("Prompt returned %v", err)
+	}
+	if got := atomic.LoadInt32(&client.calls); got != 2 {
+		t.Fatalf("Stream calls = %d; want 2", got)
+	}
+	if len(turnErrs) != 1 || !strings.Contains(turnErrs[0], "overloaded_error") {
+		t.Fatalf("turn errors = %v; want one overloaded error before retry", turnErrs)
+	}
+	msgs := a.Messages()
+	if len(msgs) != 2 {
+		t.Fatalf("message count = %d; want user + final assistant", len(msgs))
+	}
+	if got := extractText(msgs[1]); got != "ok" {
+		t.Fatalf("final assistant text = %q; want ok", got)
+	}
+}
+
+type partialRetryFakeClient struct {
+	calls int32
+}
+
+func (c *partialRetryFakeClient) Name() string { return "partial-retry-fake" }
+
+func (c *partialRetryFakeClient) Stream(ctx context.Context, req provider.Request) (<-chan provider.Event, error) {
+	call := atomic.AddInt32(&c.calls, 1)
+	out := make(chan provider.Event, 4)
+	go func() {
+		defer close(out)
+		out <- provider.EventStart{Provider: "partial-retry-fake", Model: req.Model}
+		if call == 1 {
+			out <- provider.EventTextDelta{Delta: "partial"}
+			out <- provider.EventDone{Stop: provider.StopError, Err: fmt.Errorf("provider returned error: 503"), Message: provider.Message{
+				Role:    provider.RoleAssistant,
+				Content: []provider.Content{provider.TextBlock{Text: "partial"}},
+			}}
+			return
+		}
+		out <- provider.EventDone{Stop: provider.StopEnd, Message: provider.Message{
+			Role:    provider.RoleAssistant,
+			Content: []provider.Content{provider.TextBlock{Text: "recovered"}},
+		}}
+	}()
+	return out, nil
+}
+
+func TestAgentDropsPartialAssistantBeforeRetry(t *testing.T) {
+	client := &partialRetryFakeClient{}
+	a := NewAgent(client, "fake-model", "system", Registry{})
+	a.RetryBaseDelay = time.Millisecond
+
+	if err := a.Prompt(context.Background(), "hello", nil, nil); err != nil {
+		t.Fatalf("Prompt returned %v", err)
+	}
+	msgs := a.Messages()
+	if len(msgs) != 2 {
+		t.Fatalf("message count = %d; want user + recovered assistant", len(msgs))
+	}
+	if got := extractText(msgs[1]); got != "recovered" {
+		t.Fatalf("final assistant text = %q; want recovered", got)
+	}
+}
+
+// captureClient records the last Request it received so tests can
+// assert what the agent put on the wire.
+type captureClient struct {
+	lastReq provider.Request
+}
+
+func (c *captureClient) Name() string { return "capture" }
+
+func (c *captureClient) Stream(ctx context.Context, req provider.Request) (<-chan provider.Event, error) {
+	c.lastReq = req
+	out := make(chan provider.Event, 3)
+	go func() {
+		defer close(out)
+		out <- provider.EventStart{Provider: "capture", Model: req.Model}
+		out <- provider.EventDone{Stop: provider.StopEnd, Message: provider.Message{
+			Role:    provider.RoleAssistant,
+			Content: []provider.Content{provider.TextBlock{Text: "ok"}},
+		}}
+	}()
+	return out, nil
+}
+
+func TestAgentPropagatesMaxTokens(t *testing.T) {
+	client := &captureClient{}
+	a := NewAgent(client, "fake-model", "system", Registry{})
+	a.MaxTokens = 64000
+
+	if err := a.Prompt(context.Background(), "hello", nil, nil); err != nil {
+		t.Fatalf("Prompt returned %v", err)
+	}
+	if client.lastReq.MaxTokens != 64000 {
+		t.Fatalf("request MaxTokens = %d; want 64000 (Agent.MaxTokens not propagated)", client.lastReq.MaxTokens)
+	}
+}
+
+func TestAgentPropagatesTemperature(t *testing.T) {
+	client := &captureClient{}
+	a := NewAgent(client, "fake-model", "system", Registry{})
+	temp := float32(0)
+	a.Temperature = &temp
+
+	if err := a.Prompt(context.Background(), "hello", nil, nil); err != nil {
+		t.Fatalf("Prompt returned %v", err)
+	}
+	if client.lastReq.Temperature == nil || *client.lastReq.Temperature != temp {
+		t.Fatalf("request Temperature = %v; want %v", client.lastReq.Temperature, temp)
+	}
+}

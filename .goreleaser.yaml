@@ -1,0 +1,94 @@
+# GoReleaser config — builds cross-platform binaries and GitHub Release
+# artifacts for puddle.
+#
+# Triggered by pushing a tag like `v0.1.0`. The release workflow runs
+# `goreleaser release --clean`, which compiles every target, packs
+# them into `.tar.gz` (Unix) / `.zip` (Windows) archives, generates a
+# checksum file, and uploads everything to a GitHub Release.
+
+version: 2
+
+project_name: puddle
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: puddle
+    main: ./cmd/puddle
+    binary: puddle
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    # Windows/arm64 is shipped by Go but rarely used — skip to keep the
+    # release artifact list tidy.
+    ignore:
+      - goos: windows
+        goarch: arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: puddle
+    # Human-friendly name: puddle_0.1.0_darwin_arm64.tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+snapshot:
+  # Used by `goreleaser release --snapshot`; lets contributors build
+  # a local release without pushing a tag.
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^ci:"
+      - "^test:"
+  groups:
+    - title: features
+      regexp: "^.*feat[(\\w)]*:+.*$"
+      order: 0
+    - title: fixes
+      regexp: "^.*fix[(\\w)]*:+.*$"
+      order: 1
+    - title: other
+      order: 999
+
+release:
+  github:
+    owner: patriceckhart
+    name: puddle
+  draft: false
+  prerelease: auto
+  # Auto-generated release notes include the changelog groups above plus
+  # an install snippet so the release page itself is a landing page.
+  header: |
+    ## puddle {{ .Tag }}
+
+    one-liner install:
+
+    ```bash
+    curl -fsSL https://raw.githubusercontent.com/patriceckhart/puddle/main/install.sh | bash
+    ```
+
+    or download a binary below, `chmod +x`, and drop it on your `$PATH`.
