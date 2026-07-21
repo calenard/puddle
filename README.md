@@ -1,5 +1,5 @@
 <div align="center">
-  <a href="https://www.puddle.sh">
+  <a href="https://github.com/calenard/puddle">
     <img src="packages/provider/auth/assets/puddle-logo.png" alt="puddle coding agent harness" width="130" height="130" />
   </a>
 </div>
@@ -8,9 +8,6 @@
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <img alt="Go 1.25+" src="https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white">
   <img alt="30+ providers" src="https://img.shields.io/badge/providers-30+-34E2EA">
-</p>
-<p align="center">
-  <a href="https://www.puddle.sh">puddle.sh</a>
 </p>
 
 ## What is it?
@@ -33,7 +30,7 @@ Yet another coding agent harness, lightweight and written (vibe-slopped) in go.
 ### One-liner (macOS, Linux)
 
 ```bash
-curl -fsSL https://www.puddle.sh/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/calenard/puddle/main/install.sh | bash
 ```
 
 Detects your OS and architecture, downloads the latest release from GitHub, verifies the SHA-256 against the release's `checksums.txt`, extracts the binary, and drops it in `/usr/local/bin`, `~/.local/bin`, or `~/bin`, whichever is writable first. Pass a version or prefix to pin:
