@@ -21,9 +21,16 @@ BINARY="puddle"
 
 CMD="${1:-puddle}"
 
-msg()  { printf "\033[1;32m✓\033[0m %s\n" "$*"; }
-warn() { printf "\033[1;33m?\033[0m %s\n" "$*" >&2; }
-die()  { printf "\033[1;31m✗\033[0m %s\n" "$*" >&2; exit 1; }
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+msg()  { printf "${GREEN}✓${NC} %s\n" "$*"; }
+warn() { printf "${YELLOW}?${NC} %s\n" "$*" >&2; }
+die()  { printf "${RED}✗${NC} %s\n" "$*" >&2; exit 1; }
 
 command -v curl >/dev/null 2>&1 || die "curl is required"
 command -v tar  >/dev/null 2>&1 || die "tar is required"
@@ -33,6 +40,33 @@ CURL_AUTH=()
 if [ -n "${GITHUB_TOKEN:-}" ]; then
   CURL_AUTH=(-H "Authorization: Bearer $GITHUB_TOKEN")
 fi
+
+# Spinner animation
+SPINNER=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+spin_pid=0
+
+start_spinner() {
+  local msg="$1"
+  printf "${CYAN}${SPINNER[0]}${NC} %s" "$msg"
+  (
+    i=0
+    while true; do
+      printf "\r${CYAN}${SPINNER[i]}${NC} %s" "$msg"
+      i=$(( (i + 1) % ${#SPINNER[@]} ))
+      sleep 0.1
+    done
+  ) &
+  spin_pid=$!
+}
+
+stop_spinner() {
+  if [ $spin_pid -ne 0 ]; then
+    kill $spin_pid 2>/dev/null
+    wait $spin_pid 2>/dev/null
+    spin_pid=0
+  fi
+  printf "\r\033[K"
+}
 
 # ---- detect OS + arch ----
 
@@ -56,14 +90,15 @@ esac
 
 # ---- resolve latest version ----
 
-msg "querying latest release..."
+start_spinner "Querying latest release..."
 VERSION=$(curl -fsSL "${CURL_AUTH[@]+"${CURL_AUTH[@]}"}" \
   "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest" \
   | sed -nE 's/.*"tag_name": *"([^"]+)".*/\1/p' | head -n1)
-[ -n "$VERSION" ] || die "could not resolve latest version (set GITHUB_TOKEN if the repo is private)"
+[ -n "$VERSION" ] || { stop_spinner; die "could not resolve latest version (set GITHUB_TOKEN if the repo is private)"; }
+stop_spinner
+msg "latest version: $VERSION"
 
 VER_NUM="${VERSION#v}"
-msg "latest version: $VERSION"
 
 # ---- find current binary ----
 
@@ -93,13 +128,16 @@ CHECKSUMS_URL="${BASE_URL}/checksums.txt"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-msg "downloading ${ARCHIVE}..."
-curl -fsSL "${CURL_AUTH[@]+"${CURL_AUTH[@]}"}" -o "$TMP/$ARCHIVE" "$ARCHIVE_URL" \
-  || die "download failed: $ARCHIVE_URL (set GITHUB_TOKEN if the repo is private)"
+start_spinner "Downloading ${ARCHIVE}"
+curl -fL# "${CURL_AUTH[@]+"${CURL_AUTH[@]}"}" -o "$TMP/$ARCHIVE" "$ARCHIVE_URL" \
+  || { stop_spinner; die "download failed: $ARCHIVE_URL (set GITHUB_TOKEN if the repo is private)"; }
+stop_spinner
+msg "downloaded ${ARCHIVE}"
 
-msg "verifying checksum..."
+start_spinner "Verifying checksum"
 curl -fsSL "${CURL_AUTH[@]+"${CURL_AUTH[@]}"}" -o "$TMP/checksums.txt" "$CHECKSUMS_URL" \
-  || die "download failed: $CHECKSUMS_URL"
+  || { stop_spinner; die "download failed: $CHECKSUMS_URL"; }
+stop_spinner
 
 expected=$(grep " ${ARCHIVE}\$" "$TMP/checksums.txt" | awk '{print $1}' || true)
 [ -n "$expected" ] || die "no checksum for $ARCHIVE in checksums.txt"
@@ -114,9 +152,11 @@ fi
 
 [ "$expected" = "$actual" ] \
   || die "checksum mismatch: expected $expected, got $actual"
+msg "checksum verified"
 
-msg "extracting..."
+start_spinner "Extracting"
 tar -xzf "$TMP/$ARCHIVE" -C "$TMP"
+stop_spinner
 
 [ -f "$TMP/$BINARY" ] || die "archive did not contain a '$BINARY' binary"
 
