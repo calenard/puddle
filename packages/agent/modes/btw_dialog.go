@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/puddle-dev/puddle/packages/core"
-	"github.com/puddle-dev/puddle/packages/provider"
-	"github.com/puddle-dev/puddle/packages/tui"
+	"github.com/erdium/puddle/packages/core"
+	"github.com/erdium/puddle/packages/provider"
+	"github.com/erdium/puddle/packages/tui"
 )
 
 // btwTurn is one user/assistant pair within a side chat. Kept

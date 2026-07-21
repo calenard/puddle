@@ -1,6 +1,6 @@
 package core
 
-import "github.com/puddle-dev/puddle/packages/provider"
+import "github.com/erdium/puddle/packages/provider"
 
 // CostTracker accumulates usage across turns in a session.
 //

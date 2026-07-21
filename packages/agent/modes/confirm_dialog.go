@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/puddle-dev/puddle/packages/core"
-	"github.com/puddle-dev/puddle/packages/tui"
+	"github.com/erdium/puddle/packages/core"
+	"github.com/erdium/puddle/packages/tui"
 )
 
 // confirmRequest is one pending confirmation. The agent goroutine

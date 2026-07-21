@@ -14,10 +14,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/puddle-dev/puddle/packages/agent/modes/bot"
-	"github.com/puddle-dev/puddle/packages/agent/modes/telegram"
-	"github.com/puddle-dev/puddle/packages/core"
-	"github.com/puddle-dev/puddle/packages/provider"
+	"github.com/erdium/puddle/packages/agent/modes/bot"
+	"github.com/erdium/puddle/packages/agent/modes/telegram"
+	"github.com/erdium/puddle/packages/core"
+	"github.com/erdium/puddle/packages/provider"
 )
 
 // detachChild configures cmd to run in its own process group so tty

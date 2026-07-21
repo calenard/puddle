@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/puddle-dev/puddle/packages/agent/sdk"
+	"github.com/erdium/puddle/packages/agent/sdk"
 )
 
 func main() {

@@ -7,8 +7,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/puddle-dev/puddle/packages/core"
-	"github.com/puddle-dev/puddle/packages/provider"
+	"github.com/erdium/puddle/packages/core"
+	"github.com/erdium/puddle/packages/provider"
 )
 
 // RunPrint runs the agent to completion and writes only the final

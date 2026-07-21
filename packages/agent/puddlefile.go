@@ -20,9 +20,9 @@ import (
 	"time"
 
 	"github.com/klauspost/compress/zstd"
-	"github.com/puddle-dev/puddle/packages/agent/tools"
-	"github.com/puddle-dev/puddle/packages/provider"
-	"github.com/puddle-dev/puddle/packages/provider/auth"
+	"github.com/erdium/puddle/packages/agent/tools"
+	"github.com/erdium/puddle/packages/provider"
+	"github.com/erdium/puddle/packages/provider/auth"
 	"golang.org/x/term"
 )
 

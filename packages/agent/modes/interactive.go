@@ -12,16 +12,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/puddle-dev/puddle/packages/agent/extensions"
-	"github.com/puddle-dev/puddle/packages/agent/extproto"
-	"github.com/puddle-dev/puddle/packages/agent/modes/telegram"
-	"github.com/puddle-dev/puddle/packages/agent/skills"
-	"github.com/puddle-dev/puddle/packages/agent/swarm"
-	"github.com/puddle-dev/puddle/packages/agent/tools"
-	"github.com/puddle-dev/puddle/packages/core"
-	"github.com/puddle-dev/puddle/packages/provider"
-	"github.com/puddle-dev/puddle/packages/provider/auth"
-	"github.com/puddle-dev/puddle/packages/tui"
+	"github.com/erdium/puddle/packages/agent/extensions"
+	"github.com/erdium/puddle/packages/agent/extproto"
+	"github.com/erdium/puddle/packages/agent/modes/telegram"
+	"github.com/erdium/puddle/packages/agent/skills"
+	"github.com/erdium/puddle/packages/agent/swarm"
+	"github.com/erdium/puddle/packages/agent/tools"
+	"github.com/erdium/puddle/packages/core"
+	"github.com/erdium/puddle/packages/provider"
+	"github.com/erdium/puddle/packages/provider/auth"
+	"github.com/erdium/puddle/packages/tui"
 )
 
 // InteractiveConfig configures the interactive loop.
@@ -4188,7 +4188,7 @@ func (i *Interactive) doLogout(target string) {
 }
 
 func providerSetupInfo(provider string) (string, []string, bool) {
-	const docsURL = "https://raw.githubusercontent.com/patriceckhart/puddle/main/docs/providers.md"
+	const docsURL = "https://raw.githubusercontent.com/erdium/puddle/main/docs/providers.md"
 	switch provider {
 	case "amazon-bedrock":
 		return "Amazon Bedrock setup", []string{

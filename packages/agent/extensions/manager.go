@@ -28,8 +28,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/puddle-dev/puddle/packages/agent/extproto"
-	"github.com/puddle-dev/puddle/packages/tui"
+	"github.com/erdium/puddle/packages/agent/extproto"
+	"github.com/erdium/puddle/packages/tui"
 )
 
 // Manifest is the extension.json file shipped alongside an

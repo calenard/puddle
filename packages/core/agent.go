@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/puddle-dev/puddle/packages/provider"
+	"github.com/erdium/puddle/packages/provider"
 )
 
 // Agent is a stateful conversation bound to a provider client, a model,

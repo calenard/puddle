@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/puddle-dev/puddle/packages/provider"
-	"github.com/puddle-dev/puddle/packages/provider/auth"
-	"github.com/puddle-dev/puddle/packages/tui"
+	"github.com/erdium/puddle/packages/provider"
+	"github.com/erdium/puddle/packages/provider/auth"
+	"github.com/erdium/puddle/packages/tui"
 )
 
 // loginStep is the current node in the login dialog state machine.

@@ -25,7 +25,7 @@ const updateCheckFile = "update-check.json"
 
 // githubReleasesAPI is the REST endpoint we query. Using the API (not
 // the HTML redirect) because the JSON response is stable and small.
-const githubReleasesAPI = "https://api.github.com/repos/patriceckhart/puddle/releases/latest"
+const githubReleasesAPI = "https://api.github.com/repos/erdium/puddle/releases/latest"
 
 // UpdateInfo describes the result of an update check. Zero-value means
 // "no update available, no error, don't show anything".

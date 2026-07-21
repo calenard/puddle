@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/puddle-dev/puddle/packages/provider"
+	"github.com/erdium/puddle/packages/provider"
 )
 
 // StatusSnapshot is the small cross-host state bundle rendered for

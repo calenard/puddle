@@ -3,8 +3,8 @@
 # puddle installer.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/patriceckhart/puddle/main/install.sh | bash
-#   curl -fsSL https://raw.githubusercontent.com/patriceckhart/puddle/main/install.sh | bash -s -- v0.0.1 ~/bin
+#   curl -fsSL https://raw.githubusercontent.com/erdium/puddle/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/erdium/puddle/main/install.sh | bash -s -- v0.0.1 ~/bin
 #
 # Positional arguments:
 #   $1  version    — release tag (e.g. v0.0.1). Defaults to "latest".
@@ -28,7 +28,7 @@
 
 set -euo pipefail
 
-OWNER="patriceckhart"
+OWNER="erdium"
 REPO="puddle"
 BINARY="puddle"
 

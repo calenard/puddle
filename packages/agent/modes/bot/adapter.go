@@ -7,7 +7,7 @@ package bot
 import (
 	"context"
 
-	"github.com/puddle-dev/puddle/packages/provider"
+	"github.com/erdium/puddle/packages/provider"
 )
 
 // InboundMessage is a protocol-normalised message from a user.

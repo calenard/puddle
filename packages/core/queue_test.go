@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/puddle-dev/puddle/packages/provider"
+	"github.com/erdium/puddle/packages/provider"
 )
 
 type queueFakeClient struct {

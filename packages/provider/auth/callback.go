@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/puddle-dev/puddle/packages/provider/auth/assets"
+	"github.com/erdium/puddle/packages/provider/auth/assets"
 )
 
 // CallbackResult is what an OAuth callback server returns once the

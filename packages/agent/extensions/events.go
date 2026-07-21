@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/puddle-dev/puddle/packages/agent/extproto"
+	"github.com/erdium/puddle/packages/agent/extproto"
 )
 
 // EmitEvent fires a one-way lifecycle event to every extension that

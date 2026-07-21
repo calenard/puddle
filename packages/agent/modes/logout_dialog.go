@@ -1,7 +1,7 @@
 package modes
 
 import (
-	"github.com/puddle-dev/puddle/packages/tui"
+	"github.com/erdium/puddle/packages/tui"
 )
 
 // logoutDialog is the picker shown when the user runs `/logout`

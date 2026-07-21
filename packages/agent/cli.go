@@ -15,16 +15,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/puddle-dev/puddle/packages/agent/extensions"
-	"github.com/puddle-dev/puddle/packages/agent/extproto"
-	"github.com/puddle-dev/puddle/packages/agent/modes"
-	"github.com/puddle-dev/puddle/packages/agent/skills"
-	"github.com/puddle-dev/puddle/packages/agent/swarm"
-	"github.com/puddle-dev/puddle/packages/agent/tools"
-	"github.com/puddle-dev/puddle/packages/core"
-	"github.com/puddle-dev/puddle/packages/provider"
-	"github.com/puddle-dev/puddle/packages/provider/auth"
-	"github.com/puddle-dev/puddle/packages/tui"
+	"github.com/erdium/puddle/packages/agent/extensions"
+	"github.com/erdium/puddle/packages/agent/extproto"
+	"github.com/erdium/puddle/packages/agent/modes"
+	"github.com/erdium/puddle/packages/agent/skills"
+	"github.com/erdium/puddle/packages/agent/swarm"
+	"github.com/erdium/puddle/packages/agent/tools"
+	"github.com/erdium/puddle/packages/core"
+	"github.com/erdium/puddle/packages/provider"
+	"github.com/erdium/puddle/packages/provider/auth"
+	"github.com/erdium/puddle/packages/tui"
 )
 
 // interactiveExtHooks is a tiny adapter that lets the extension

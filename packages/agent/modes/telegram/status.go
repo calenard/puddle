@@ -1,6 +1,6 @@
 package telegram
 
-import "github.com/puddle-dev/puddle/packages/agent/modes/bot"
+import "github.com/erdium/puddle/packages/agent/modes/bot"
 
 // StatusSnapshot is an alias for bot.StatusSnapshot for backward compatibility.
 type StatusSnapshot = bot.StatusSnapshot

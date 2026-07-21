@@ -1,8 +1,8 @@
 package agent
 
 import (
-	"github.com/puddle-dev/puddle/packages/provider"
-	"github.com/puddle-dev/puddle/packages/tui"
+	"github.com/erdium/puddle/packages/provider"
+	"github.com/erdium/puddle/packages/tui"
 )
 
 type configSettingsStore struct{}

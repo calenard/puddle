@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/puddle-dev/puddle/packages/provider"
+	"github.com/erdium/puddle/packages/provider"
 )
 
 // Tool is a capability the agent can invoke.

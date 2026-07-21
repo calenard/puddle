@@ -3,7 +3,7 @@ package sdk
 import (
 	"testing"
 
-	"github.com/puddle-dev/puddle/packages/core"
+	"github.com/erdium/puddle/packages/core"
 )
 
 func TestRuntimeSetReasoningMax(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/puddle-dev/puddle/packages/tui"
+	"github.com/erdium/puddle/packages/tui"
 )
 
 func TestShellEscapeCommand(t *testing.T) {

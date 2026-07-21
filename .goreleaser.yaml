@@ -76,7 +76,7 @@ changelog:
 
 release:
   github:
-    owner: patriceckhart
+    owner: erdium
     name: puddle
   draft: false
   prerelease: auto
@@ -88,7 +88,7 @@ release:
     one-liner install:
 
     ```bash
-    curl -fsSL https://raw.githubusercontent.com/patriceckhart/puddle/main/install.sh | bash
+    curl -fsSL https://raw.githubusercontent.com/erdium/puddle/main/install.sh | bash
     ```
 
     or download a binary below, `chmod +x`, and drop it on your `$PATH`.

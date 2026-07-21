@@ -1,6 +1,6 @@
 package modes
 
-import "github.com/puddle-dev/puddle/packages/tui"
+import "github.com/erdium/puddle/packages/tui"
 
 // welcomeBanner returns the intro text shown at the top of an empty chat.
 // It uses the `puddle` label color (same as the assistant) for consistency.

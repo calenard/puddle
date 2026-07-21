@@ -5,7 +5,7 @@ import (
 
 	"github.com/mattn/go-runewidth"
 
-	"github.com/puddle-dev/puddle/packages/tui"
+	"github.com/erdium/puddle/packages/tui"
 )
 
 // frameHeader returns a full-width rule with a small title at the left.

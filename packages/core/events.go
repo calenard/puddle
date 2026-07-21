@@ -3,7 +3,7 @@ package core
 import (
 	"encoding/json"
 
-	"github.com/puddle-dev/puddle/packages/provider"
+	"github.com/erdium/puddle/packages/provider"
 )
 
 // AgentEvent is the superset of events emitted by an Agent run.

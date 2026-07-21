@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/puddle-dev/puddle/packages/provider"
+	"github.com/erdium/puddle/packages/provider"
 )
 
 func TestSessionRoundTrip(t *testing.T) {

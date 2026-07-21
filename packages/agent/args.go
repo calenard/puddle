@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/puddle-dev/puddle/packages/agent/tools"
-	"github.com/puddle-dev/puddle/packages/tui"
+	"github.com/erdium/puddle/packages/agent/tools"
+	"github.com/erdium/puddle/packages/tui"
 	"golang.org/x/term"
 )
 

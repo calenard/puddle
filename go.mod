@@ -1,4 +1,4 @@
-module github.com/puddle-dev/puddle
+module github.com/erdium/puddle
 
 go 1.25.0
 

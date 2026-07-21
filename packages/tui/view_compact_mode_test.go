@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/puddle-dev/puddle/packages/provider"
+	"github.com/erdium/puddle/packages/provider"
 )
 
 func compactModeUserMsg(text string) provider.Message {

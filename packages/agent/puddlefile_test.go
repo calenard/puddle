@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/puddle-dev/puddle/packages/agent/tools"
+	"github.com/erdium/puddle/packages/agent/tools"
 )
 
 func writeTestPuddlefile(t *testing.T, manifest string) string {
@@ -109,8 +109,8 @@ func TestParseGitHubAgentURL(t *testing.T) {
 		input                 string
 		owner, repo, ref, dir string
 	}{
-		{"https://github.com/patriceckhart/agents/puddle-maintenance", "patriceckhart", "agents", "HEAD", "puddle-maintenance"},
-		{"https://github.com/patriceckhart/agents/tree/main/puddle-maintenance", "patriceckhart", "agents", "main", "puddle-maintenance"},
+		{"https://github.com/erdium/agents/puddle-maintenance", "erdium", "agents", "HEAD", "puddle-maintenance"},
+		{"https://github.com/erdium/agents/tree/main/puddle-maintenance", "erdium", "agents", "main", "puddle-maintenance"},
 		{"https://github.com/acme/agent.git", "acme", "agent", "HEAD", ""},
 	}
 	for _, tt := range tests {
@@ -160,7 +160,7 @@ func TestLoadRemotePuddlefileDownloadsTemporaryGitHubArchive(t *testing.T) {
 	githubArchiveURL = func(_, _, _ string) string { return server.URL }
 	t.Cleanup(func() { githubArchiveURL = oldArchiveURL })
 
-	u, _ := url.Parse("https://github.com/patriceckhart/agents/puddle-maintenance")
+	u, _ := url.Parse("https://github.com/erdium/agents/puddle-maintenance")
 	zf, cleanup, err := loadRemotePuddlefile(u)
 	if err != nil {
 		t.Fatal(err)

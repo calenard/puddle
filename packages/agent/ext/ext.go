@@ -9,7 +9,7 @@
 //
 //	package main
 //
-//	import "github.com/puddle-dev/puddle/packages/agent/ext"
+//	import "github.com/erdium/puddle/packages/agent/ext"
 //
 //	func main() {
 //	    ext := ext.New("hello", "1.0.0")
@@ -40,7 +40,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/puddle-dev/puddle/packages/agent/extproto"
+	"github.com/erdium/puddle/packages/agent/extproto"
 )
 
 func base64Encode(b []byte) string { return base64.StdEncoding.EncodeToString(b) }

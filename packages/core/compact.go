@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/puddle-dev/puddle/packages/provider"
+	"github.com/erdium/puddle/packages/provider"
 )
 
 // Compact summarizes the agent's transcript via the LLM and replaces

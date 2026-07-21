@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/puddle-dev/puddle/packages/provider"
+	"github.com/erdium/puddle/packages/provider"
 )
 
 func mustJSON(t *testing.T, v any) json.RawMessage {

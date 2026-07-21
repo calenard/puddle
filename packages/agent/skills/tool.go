@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/puddle-dev/puddle/packages/core"
-	"github.com/puddle-dev/puddle/packages/provider"
+	"github.com/erdium/puddle/packages/core"
+	"github.com/erdium/puddle/packages/provider"
 )
 
 // Tool implements core.Tool, exposing a `skill` tool the LLM can call

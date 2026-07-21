@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/puddle-dev/puddle/packages/core"
-	"github.com/puddle-dev/puddle/packages/provider"
+	"github.com/erdium/puddle/packages/core"
+	"github.com/erdium/puddle/packages/provider"
 )
 
 // TelegramSender is the small affordance the telegram-send tools call

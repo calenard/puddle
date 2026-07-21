@@ -45,13 +45,13 @@ func FetchChangelog(ctx context.Context, version string) (ChangelogInfo, error) 
 	// of a tagged one so developers always see the newest changelog.
 	var url string
 	if version == "0.0.0" {
-		url = "https://api.github.com/repos/patriceckhart/puddle/releases/latest"
+		url = "https://api.github.com/repos/erdium/puddle/releases/latest"
 	} else {
 		tag := version
 		if !strings.HasPrefix(tag, "v") {
 			tag = "v" + tag
 		}
-		url = fmt.Sprintf("https://api.github.com/repos/patriceckhart/puddle/releases/tags/%s", tag)
+		url = fmt.Sprintf("https://api.github.com/repos/erdium/puddle/releases/tags/%s", tag)
 	}
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {

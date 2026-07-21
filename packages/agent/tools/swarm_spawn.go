@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/puddle-dev/puddle/packages/agent/swarm"
-	"github.com/puddle-dev/puddle/packages/core"
-	"github.com/puddle-dev/puddle/packages/provider"
+	"github.com/erdium/puddle/packages/agent/swarm"
+	"github.com/erdium/puddle/packages/core"
+	"github.com/erdium/puddle/packages/provider"
 )
 
 // SwarmSpawnTool lets the main agent fork a background sub-agent

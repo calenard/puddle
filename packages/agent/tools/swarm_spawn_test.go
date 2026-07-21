@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/puddle-dev/puddle/packages/agent/swarm"
-	"github.com/puddle-dev/puddle/packages/provider"
+	"github.com/erdium/puddle/packages/agent/swarm"
+	"github.com/erdium/puddle/packages/provider"
 )
 
 type noopSwarmRunner struct{}

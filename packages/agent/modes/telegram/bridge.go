@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/puddle-dev/puddle/packages/agent/modes/bot"
-	"github.com/puddle-dev/puddle/packages/provider"
+	"github.com/erdium/puddle/packages/agent/modes/bot"
+	"github.com/erdium/puddle/packages/provider"
 )
 
 // Host is the small interface the Bridge calls back into the TUI

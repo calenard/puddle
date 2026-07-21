@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/puddle-dev/puddle/packages/agent/extensions"
+	"github.com/erdium/puddle/packages/agent/extensions"
 )
 
 // TestExtInstallDotSource verifies that `puddle ext install .` derives the
