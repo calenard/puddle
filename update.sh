@@ -68,6 +68,12 @@ stop_spinner() {
   printf "\r\033[K"
 }
 
+# Trap to ensure spinner is stopped on exit
+cleanup() {
+  stop_spinner
+}
+trap cleanup EXIT INT TERM
+
 # ---- detect OS + arch ----
 
 uname_s=$(uname -s)

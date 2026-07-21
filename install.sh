@@ -82,6 +82,12 @@ stop_spinner() {
   printf "\r\033[K"
 }
 
+# Trap to ensure spinner is stopped on exit
+cleanup() {
+  stop_spinner
+}
+trap cleanup EXIT INT TERM
+
 # ---- detect OS + arch ----
 
 uname_s=$(uname -s)
@@ -106,14 +112,22 @@ esac
 
 if [ "$VERSION" = "latest" ]; then
   start_spinner "Querying latest release..."
+  VERSION=""
   if [ ${#CURL_AUTH[@]} -gt 0 ]; then
+    # Use API for private repos
     VERSION=$(curl -fsSL "${CURL_AUTH[@]+"${CURL_AUTH[@]}"}" \
       "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest" \
       | sed -nE 's/.*"tag_name": *"([^"]+)".*/\1/p' | head -n1)
   else
+    # For public repos, use redirect to get latest tag
     VERSION=$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
-      "https://github.com/${OWNER}/${REPO}/releases/latest" \
+      "https://github.com/${OWNER}/${REPO}/releases/latest" 2>/dev/null \
       | sed -E 's|.*/tag/([^/]+).*|\1|')
+    # Fallback to API if redirect doesn't work
+    if [ -z "$VERSION" ]; then
+      VERSION=$(curl -fsSL "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest" \
+        | sed -nE 's/.*"tag_name": *"([^"]+)".*/\1/p' | head -n1)
+    fi
   fi
   [ -n "$VERSION" ] || { stop_spinner; die "could not resolve latest version (set GITHUB_TOKEN if the repo is private)"; }
   stop_spinner
