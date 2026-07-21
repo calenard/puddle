@@ -52,6 +52,8 @@ go.work.sum
 
 bin/
 dist/
+puddle
+puddle.exe
 
 node_modules/
 npm-debug.log*
