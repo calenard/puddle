@@ -19,15 +19,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/klauspost/compress/zstd"
 	"github.com/erdium/puddle/packages/agent/tools"
 	"github.com/erdium/puddle/packages/provider"
 	"github.com/erdium/puddle/packages/provider/auth"
+	"github.com/klauspost/compress/zstd"
 	"golang.org/x/term"
 )
 
 type PuddlefileManifest struct {
-	Puddlefile     int    `json:"puddlefile"`
+	Puddlefile  int    `json:"puddlefile"`
 	Name        string `json:"name"`
 	Version     string `json:"version"`
 	Description string `json:"description"`

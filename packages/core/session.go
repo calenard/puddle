@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/erdium/puddle/packages/provider"
+	"github.com/google/uuid"
 )
 
 // Session is a JSONL-backed conversation transcript tied to a cwd.

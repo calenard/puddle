@@ -20,8 +20,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/erdium/puddle/packages/agent/ext"
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // toolMapping tracks which puddle tool name maps to which MCP server + tool.

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/erdium/puddle/packages/provider"
+	"github.com/google/uuid"
 )
 
 // PortableExt is the filesystem extension used for exported sessions.

@@ -135,11 +135,11 @@ type HostHooks interface {
 // Manager owns every extension subprocess for the lifetime of puddle.
 type Manager struct {
 	puddleHome    string
-	cwd        string
+	cwd           string
 	puddleVersion string
-	provider   string
-	model      string
-	hooks      HostHooks
+	provider      string
+	model         string
+	hooks         HostHooks
 
 	mu  sync.RWMutex
 	ext map[string]*Extension // keyed by manifest name
@@ -168,15 +168,15 @@ type Manager struct {
 // the on-disk extension directories.
 func New(puddleHome, cwd, puddleVersion, provider, model string, hooks HostHooks) *Manager {
 	return &Manager{
-		puddleHome:      puddleHome,
-		cwd:          cwd,
-		puddleVersion:   puddleVersion,
-		provider:     provider,
-		model:        model,
-		hooks:        hooks,
-		ext:          map[string]*Extension{},
-		commandIndex: map[string]*Extension{},
-		toolIndex:    map[string]*Extension{},
+		puddleHome:    puddleHome,
+		cwd:           cwd,
+		puddleVersion: puddleVersion,
+		provider:      provider,
+		model:         model,
+		hooks:         hooks,
+		ext:           map[string]*Extension{},
+		commandIndex:  map[string]*Extension{},
+		toolIndex:     map[string]*Extension{},
 	}
 }
 
@@ -585,7 +585,7 @@ func (m *Manager) spawn(ctx context.Context, ext *Extension) error {
 	ack, _ := extproto.Encode(extproto.HelloAckFromHost{
 		Type:            "hello_ack",
 		ProtocolVersion: extproto.ProtocolVersion,
-		PuddleVersion:      m.puddleVersion,
+		PuddleVersion:   m.puddleVersion,
 		Provider:        m.provider,
 		Model:           m.model,
 		CWD:             m.cwd,

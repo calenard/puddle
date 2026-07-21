@@ -123,7 +123,7 @@ func (h *extHarness) handshake(t *testing.T) {
 	h.sendToExt(t, extproto.HelloAckFromHost{
 		Type:            "hello_ack",
 		ProtocolVersion: extproto.ProtocolVersion,
-		PuddleVersion:      "0.0.0-test",
+		PuddleVersion:   "0.0.0-test",
 		Provider:        "anthropic",
 		Model:           "claude-test",
 	})
@@ -157,7 +157,7 @@ func TestOnHelloCanRegisterUsingHostInfo(t *testing.T) {
 	h.sendToExt(t, extproto.HelloAckFromHost{
 		Type:            "hello_ack",
 		ProtocolVersion: extproto.ProtocolVersion,
-		PuddleVersion:      "0.0.0-test",
+		PuddleVersion:   "0.0.0-test",
 		Provider:        "anthropic",
 		Model:           "claude-test",
 		CWD:             "/tmp/project",

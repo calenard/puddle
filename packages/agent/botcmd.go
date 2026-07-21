@@ -254,7 +254,7 @@ func botRun(spec *botSpec, rawTail []string, version string) error {
 
 	var runner *bot.Runner
 	runner = bot.NewRunner(adapter, agent, bot.Config{
-		PuddleHome:    PuddleHome(),
+		PuddleHome: PuddleHome(),
 		Provider:   resolved.Provider,
 		Model:      resolved.Model,
 		AuthMethod: resolved.AuthMethod,

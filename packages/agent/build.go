@@ -87,10 +87,10 @@ func (r *Resolved) MergeExtensionTools(mgr ExtensionToolSource) {
 	// addendum is preserved by walking the existing append slice.
 	append_ := r.systemAppend
 	r.SystemPrompt = BuildSystemPrompt(SystemPromptOpts{
-		CWD:        r.CWD,
-		Tools:      toolSummariesFromRegistry(r.ToolRegistry, r.toolDescriptions),
-		Custom:     r.systemCustom,
-		Append:     append_,
+		CWD:           r.CWD,
+		Tools:         toolSummariesFromRegistry(r.ToolRegistry, r.toolDescriptions),
+		Custom:        r.systemCustom,
+		Append:        append_,
 		PuddleDocsDir: filepath.Join(PuddleHome(), "docs"),
 	})
 }
@@ -585,10 +585,10 @@ func Resolve(args Args, requireCred bool) (Resolved, error) {
 	}
 
 	sys := BuildSystemPrompt(SystemPromptOpts{
-		CWD:        args.CWD,
-		Tools:      summaries,
-		Custom:     custom,
-		Append:     append_,
+		CWD:           args.CWD,
+		Tools:         summaries,
+		Custom:        custom,
+		Append:        append_,
 		PuddleDocsDir: docsDir,
 	})
 

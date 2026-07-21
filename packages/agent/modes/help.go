@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mattn/go-runewidth"
 	"github.com/erdium/puddle/packages/tui"
+	"github.com/mattn/go-runewidth"
 )
 
 // helpKeyRows is the list of keybindings shown by /help.

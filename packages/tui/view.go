@@ -9,8 +9,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/mattn/go-runewidth"
 	"github.com/erdium/puddle/packages/provider"
+	"github.com/mattn/go-runewidth"
 )
 
 // expandTabs replaces tab characters with 4 spaces so code from

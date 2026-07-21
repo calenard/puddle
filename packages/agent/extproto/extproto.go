@@ -158,7 +158,7 @@ type ShutdownAckFromExt struct {
 type HelloAckFromHost struct {
 	Type            string `json:"type"`
 	ProtocolVersion int    `json:"protocol_version"`
-	PuddleVersion      string `json:"puddle_version"`
+	PuddleVersion   string `json:"puddle_version"`
 	Provider        string `json:"provider"`
 	Model           string `json:"model"`
 	CWD             string `json:"cwd"`

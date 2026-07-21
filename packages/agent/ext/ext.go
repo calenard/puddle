@@ -285,7 +285,7 @@ type toolDef struct {
 // extensions that want to behave differently per provider.
 type HostInfo struct {
 	ProtocolVersion int
-	PuddleVersion      string
+	PuddleVersion   string
 	Provider        string
 	Model           string
 	CWD             string
@@ -494,7 +494,7 @@ func (e *Extension) Run() error {
 	}
 	e.host = HostInfo{
 		ProtocolVersion: ack.ProtocolVersion,
-		PuddleVersion:      ack.PuddleVersion,
+		PuddleVersion:   ack.PuddleVersion,
 		Provider:        ack.Provider,
 		Model:           ack.Model,
 		CWD:             ack.CWD,

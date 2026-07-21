@@ -5,9 +5,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mattn/go-runewidth"
 	"github.com/erdium/puddle/packages/provider"
 	"github.com/erdium/puddle/packages/tui"
+	"github.com/mattn/go-runewidth"
 )
 
 // modelDialog is an inline picker for choosing the active model.

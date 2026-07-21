@@ -976,7 +976,7 @@ func runInteractive(ctx context.Context, args Args, version string) error {
 		Tools:                      r.ToolRegistry,
 		MaxSteps:                   r.MaxSteps,
 		CWD:                        r.CWD,
-		PuddleHome:                    PuddleHome(),
+		PuddleHome:                 PuddleHome(),
 		Version:                    version,
 		UpdateInfoChan:             updateCh,
 		Sandbox:                    sharedSandbox,

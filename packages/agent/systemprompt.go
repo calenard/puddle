@@ -19,11 +19,11 @@ type ToolSummary struct {
 
 // SystemPromptOpts configures BuildSystemPrompt.
 type SystemPromptOpts struct {
-	CWD        string
-	Tools      []ToolSummary
-	Custom     string   // if set, replaces the default identity entirely
-	Append     []string // extra text appended at the end
-	Now        time.Time
+	CWD           string
+	Tools         []ToolSummary
+	Custom        string   // if set, replaces the default identity entirely
+	Append        []string // extra text appended at the end
+	Now           time.Time
 	PuddleDocsDir string
 }
 
