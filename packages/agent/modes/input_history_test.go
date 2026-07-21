@@ -3,9 +3,9 @@ package modes
 import (
 	"testing"
 
-	"github.com/erdium/puddle/packages/core"
-	"github.com/erdium/puddle/packages/provider"
-	"github.com/erdium/puddle/packages/tui"
+	"github.com/calenard/puddle/packages/core"
+	"github.com/calenard/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/tui"
 )
 
 func TestInputHistoryUsesUpDown(t *testing.T) {

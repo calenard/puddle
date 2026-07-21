@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/erdium/puddle/packages/tui"
+	"github.com/calenard/puddle/packages/tui"
 )
 
 func newNotesTestInteractive() *Interactive {

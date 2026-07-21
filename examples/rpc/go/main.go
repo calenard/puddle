@@ -1,6 +1,6 @@
 // Tiny Go program that drives `puddle rpc` as a subprocess.
 //
-// For an in-process Go embedding, use github.com/erdium/puddle/packages/agent/sdk
+// For an in-process Go embedding, use github.com/calenard/puddle/packages/agent/sdk
 // instead — this example exists to show what consumers in OTHER
 // languages have to do.
 package main

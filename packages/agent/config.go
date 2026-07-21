@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/erdium/puddle/packages/provider/auth"
+	"github.com/calenard/puddle/packages/provider/auth"
 )
 
 // QuickModelShortcut is one configured keyboard shortcut slot.

@@ -3,7 +3,7 @@ package modes
 import (
 	"strings"
 
-	"github.com/erdium/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/provider"
 )
 
 type clipboardImageAttachment struct {

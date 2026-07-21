@@ -10,8 +10,8 @@ import (
 
 	"github.com/sahilm/fuzzy"
 
-	"github.com/erdium/puddle/packages/ignore"
-	"github.com/erdium/puddle/packages/tui"
+	"github.com/calenard/puddle/packages/ignore"
+	"github.com/calenard/puddle/packages/tui"
 )
 
 // recursiveScanLimits bound the recursive walk so the picker stays

@@ -6,8 +6,8 @@ import (
 
 	"github.com/mattn/go-runewidth"
 
-	"github.com/erdium/puddle/packages/agent/swarm"
-	"github.com/erdium/puddle/packages/tui"
+	"github.com/calenard/puddle/packages/agent/swarm"
+	"github.com/calenard/puddle/packages/tui"
 )
 
 func assertRowsFitWidth(t *testing.T, rows []string, width int) {

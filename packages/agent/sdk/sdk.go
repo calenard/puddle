@@ -29,9 +29,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/erdium/puddle/packages/agent"
-	"github.com/erdium/puddle/packages/core"
-	"github.com/erdium/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/agent"
+	"github.com/calenard/puddle/packages/core"
+	"github.com/calenard/puddle/packages/provider"
 )
 
 // Config configures a Runtime. All fields are optional; sensible

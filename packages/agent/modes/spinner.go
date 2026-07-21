@@ -4,7 +4,7 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/erdium/puddle/packages/tui"
+	"github.com/calenard/puddle/packages/tui"
 )
 
 // spinner drives the busy animation shown in the status bar while a

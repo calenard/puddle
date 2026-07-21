@@ -1,12 +1,12 @@
 # puddle installer for Windows (PowerShell).
 #
 # Usage (in PowerShell):
-#   iwr -useb https://raw.githubusercontent.com/erdium/puddle/main/install.ps1 | iex
+#   iwr -useb https://raw.githubusercontent.com/calenard/puddle/main/install.ps1 | iex
 #
 # Or with arguments:
 #   $env:PUDDLE_VERSION = "v0.0.1"
 #   $env:PUDDLE_PREFIX  = "$HOME\bin"
-#   iwr -useb https://raw.githubusercontent.com/erdium/puddle/main/install.ps1 | iex
+#   iwr -useb https://raw.githubusercontent.com/calenard/puddle/main/install.ps1 | iex
 #
 # Detects architecture, downloads the matching .zip from the GitHub
 # release, verifies the sha256 against checksums.txt, extracts puddle.exe,
@@ -27,7 +27,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$owner  = "erdium"
+$owner  = "calenard"
 $repo   = "puddle"
 $binary = "puddle"
 

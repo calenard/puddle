@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/erdium/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/provider"
 	"github.com/google/uuid"
 )
 

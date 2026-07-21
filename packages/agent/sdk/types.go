@@ -3,8 +3,8 @@ package sdk
 import (
 	"encoding/json"
 
-	"github.com/erdium/puddle/packages/core"
-	"github.com/erdium/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/core"
+	"github.com/calenard/puddle/packages/provider"
 )
 
 // Event is the unit emitted by Runtime.Prompt's channel. Type

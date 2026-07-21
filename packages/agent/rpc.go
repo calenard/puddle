@@ -12,11 +12,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/erdium/puddle/packages/agent/extensions"
-	"github.com/erdium/puddle/packages/agent/extproto"
-	"github.com/erdium/puddle/packages/agent/modes"
-	"github.com/erdium/puddle/packages/core"
-	"github.com/erdium/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/agent/extensions"
+	"github.com/calenard/puddle/packages/agent/extproto"
+	"github.com/calenard/puddle/packages/agent/modes"
+	"github.com/calenard/puddle/packages/core"
+	"github.com/calenard/puddle/packages/provider"
 )
 
 // runRPCMode implements the JSON-over-stdin/stdout RPC protocol.

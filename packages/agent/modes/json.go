@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/erdium/puddle/packages/core"
-	"github.com/erdium/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/core"
+	"github.com/calenard/puddle/packages/provider"
 )
 
 // RunJSON runs the agent to completion, writing one JSON object per

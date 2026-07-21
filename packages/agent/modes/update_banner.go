@@ -3,7 +3,7 @@ package modes
 import (
 	"fmt"
 
-	"github.com/erdium/puddle/packages/tui"
+	"github.com/calenard/puddle/packages/tui"
 )
 
 // UpdateInfo mirrors agent.UpdateInfo without the import cycle. The

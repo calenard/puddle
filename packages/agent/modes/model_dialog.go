@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/erdium/puddle/packages/provider"
-	"github.com/erdium/puddle/packages/tui"
+	"github.com/calenard/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/tui"
 	"github.com/mattn/go-runewidth"
 )
 

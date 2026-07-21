@@ -9,7 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/erdium/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/provider"
 	"github.com/mattn/go-runewidth"
 )
 

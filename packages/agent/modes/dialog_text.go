@@ -3,7 +3,7 @@ package modes
 import (
 	"strings"
 
-	"github.com/erdium/puddle/packages/tui"
+	"github.com/calenard/puddle/packages/tui"
 )
 
 const dialogTextIndent = "    "

@@ -19,9 +19,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/erdium/puddle/packages/agent/tools"
-	"github.com/erdium/puddle/packages/provider"
-	"github.com/erdium/puddle/packages/provider/auth"
+	"github.com/calenard/puddle/packages/agent/tools"
+	"github.com/calenard/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/provider/auth"
 	"github.com/klauspost/compress/zstd"
 	"golang.org/x/term"
 )

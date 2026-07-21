@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/erdium/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/provider"
 )
 
 func testClipboardImage(marker string, data string) clipboardImageAttachment {

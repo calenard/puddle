@@ -3,7 +3,7 @@ package modes
 import (
 	"testing"
 
-	"github.com/erdium/puddle/packages/agent/tools"
+	"github.com/calenard/puddle/packages/agent/tools"
 )
 
 func TestJailByDefaultSettingUpdatesLiveSandbox(t *testing.T) {

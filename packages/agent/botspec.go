@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"github.com/erdium/puddle/packages/agent/modes/bot"
+	"github.com/calenard/puddle/packages/agent/modes/bot"
 )
 
 // botSpec describes one bot protocol to the generic daemon CLI in

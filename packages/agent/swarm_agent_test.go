@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/erdium/puddle/packages/agent/swarm"
+	"github.com/calenard/puddle/packages/agent/swarm"
 )
 
 // TestSwarmEmitterMirrorDormantUntilStdoutBreaks regresses the

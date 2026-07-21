@@ -110,7 +110,7 @@ func runUpdateCheck(version string) error {
 // runUpdate is the meat of `puddle update`.
 func runUpdate(version string) error {
 	if version == "" || version == "dev" || version == "0.0.0" {
-		return errors.New("dev build (version 0.0.0): `puddle update` is disabled. Build a release tag or download from https://github.com/erdium/puddle/releases")
+		return errors.New("dev build (version 0.0.0): `puddle update` is disabled. Build a release tag or download from https://github.com/calenard/puddle/releases")
 	}
 	current := versionOnly(version)
 

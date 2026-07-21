@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/erdium/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/provider"
 )
 
 // ModelCachePath returns the on-disk location of the merged model cache.

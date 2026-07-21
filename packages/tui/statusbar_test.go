@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/erdium/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/provider"
 )
 
 // TestStatusBarAlwaysTwoLines verifies the status bar always emits

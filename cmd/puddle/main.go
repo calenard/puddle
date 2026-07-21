@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/erdium/puddle/packages/agent"
+	"github.com/calenard/puddle/packages/agent"
 )
 
 // Injected at build time via -ldflags "-X main.version=... -X main.commit=... -X main.date=...".

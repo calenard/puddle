@@ -1,12 +1,12 @@
-module github.com/erdium/puddle/examples/extensions/mcp-bridge
+module github.com/calenard/puddle/examples/extensions/mcp-bridge
 
 go 1.25.5
 
-replace github.com/erdium/puddle => ../../..
+replace github.com/calenard/puddle => ../../..
 
 require (
 	github.com/mark3labs/mcp-go v0.55.1
-	github.com/erdium/puddle v0.2.47
+	github.com/calenard/puddle v0.2.47
 )
 
 require (

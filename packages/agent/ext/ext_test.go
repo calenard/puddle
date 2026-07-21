@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/erdium/puddle/packages/agent/extproto"
+	"github.com/calenard/puddle/packages/agent/extproto"
 )
 
 // ---------- test harness ----------

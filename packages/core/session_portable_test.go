@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/erdium/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/provider"
 )
 
 // TestSessionExportImportRoundTrip writes a few messages to a live

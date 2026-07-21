@@ -5,7 +5,7 @@ import (
 
 	"github.com/mattn/go-runewidth"
 
-	"github.com/erdium/puddle/packages/tui"
+	"github.com/calenard/puddle/packages/tui"
 )
 
 type extPanelDialog struct {

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/erdium/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/provider"
 )
 
 // boxGlyphs are the runes that only appear when a tool call is drawn

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/erdium/puddle/packages/core"
-	"github.com/erdium/puddle/packages/provider"
-	"github.com/erdium/puddle/packages/tui"
+	"github.com/calenard/puddle/packages/core"
+	"github.com/calenard/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/tui"
 )
 
 // sessionTreeDialog renders a compact outline of the current session family.

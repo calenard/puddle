@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/erdium/puddle/packages/provider"
-	"github.com/erdium/puddle/packages/tui"
+	"github.com/calenard/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/tui"
 )
 
 // jumpTarget describes one "turn" in the current session — a user

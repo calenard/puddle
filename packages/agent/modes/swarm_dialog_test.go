@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/erdium/puddle/packages/agent/swarm"
-	"github.com/erdium/puddle/packages/provider"
-	"github.com/erdium/puddle/packages/tui"
+	"github.com/calenard/puddle/packages/agent/swarm"
+	"github.com/calenard/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/tui"
 )
 
 // staticSnapshots returns a deterministic snapshot slice for the

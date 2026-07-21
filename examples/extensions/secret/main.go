@@ -38,7 +38,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/erdium/puddle/packages/agent/ext"
+	"github.com/calenard/puddle/packages/agent/ext"
 )
 
 const schema = `{

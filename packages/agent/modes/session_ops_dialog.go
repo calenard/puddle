@@ -1,7 +1,7 @@
 package modes
 
 import (
-	"github.com/erdium/puddle/packages/tui"
+	"github.com/calenard/puddle/packages/tui"
 )
 
 // sessionOpsDialog is the picker shown when the user runs `/session`

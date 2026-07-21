@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/erdium/puddle/packages/core"
+	"github.com/calenard/puddle/packages/core"
 )
 
 func TestRPCSetReasoningMax(t *testing.T) {

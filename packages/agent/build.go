@@ -8,11 +8,11 @@ import (
 	"runtime"
 	"strings"
 
-	puddledocs "github.com/erdium/puddle"
-	"github.com/erdium/puddle/packages/agent/skills"
-	"github.com/erdium/puddle/packages/agent/tools"
-	"github.com/erdium/puddle/packages/core"
-	"github.com/erdium/puddle/packages/provider"
+	puddledocs "github.com/calenard/puddle"
+	"github.com/calenard/puddle/packages/agent/skills"
+	"github.com/calenard/puddle/packages/agent/tools"
+	"github.com/calenard/puddle/packages/core"
+	"github.com/calenard/puddle/packages/provider"
 )
 
 // Resolved is the effective configuration after merging CLI, config, defaults.

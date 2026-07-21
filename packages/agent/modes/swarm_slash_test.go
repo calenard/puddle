@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/erdium/puddle/packages/agent/swarm"
+	"github.com/calenard/puddle/packages/agent/swarm"
 )
 
 // newInteractiveForSwarmTest builds the minimal Interactive scaffolding

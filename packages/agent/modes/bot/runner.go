@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/erdium/puddle/packages/core"
-	"github.com/erdium/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/core"
+	"github.com/calenard/puddle/packages/provider"
 )
 
 // stderr is a tiny hook so tests can redirect bot logging.

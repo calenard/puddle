@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/erdium/puddle/packages/provider"
-	"github.com/erdium/puddle/packages/tui"
+	"github.com/calenard/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/tui"
 )
 
 // rescueDialog offers a quick model swap when the active turn fails

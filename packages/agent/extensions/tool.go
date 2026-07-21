@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/erdium/puddle/packages/core"
-	"github.com/erdium/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/core"
+	"github.com/calenard/puddle/packages/provider"
 )
 
 // extensionTool wraps a single extension-registered tool as a

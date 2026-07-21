@@ -53,13 +53,13 @@ Drops `puddle.exe` into `$HOME\bin` and adds it to the user PATH if missing. Ope
 ### go install
 
 ```bash
-go install github.com/erdium/puddle/cmd/puddle@latest
+go install github.com/calenard/puddle/cmd/puddle@latest
 ```
 
 ### From source
 
 ```bash
-git clone https://github.com/erdium/puddle
+git clone https://github.com/calenard/puddle
 cd puddle
 make build        # produces ./bin/puddle
 make install      # into $GOPATH/bin
@@ -67,7 +67,7 @@ make install      # into $GOPATH/bin
 
 ### Prebuilt binaries
 
-Every release on the [releases page](https://github.com/erdium/puddle/releases) ships archives for Linux, macOS, and Windows on amd64 and arm64 (except windows/arm64), plus a `checksums.txt` file. Download, verify, `chmod +x`, and drop on your `$PATH`.
+Every release on the [releases page](https://github.com/calenard/puddle/releases) ships archives for Linux, macOS, and Windows on amd64 and arm64 (except windows/arm64), plus a `checksums.txt` file. Download, verify, `chmod +x`, and drop on your `$PATH`.
 
 ## Authenticate
 
@@ -219,7 +219,7 @@ A puddlefile packages an agent's instructions, skills, requirements, and enforce
 ```bash
 puddle run ./my-agent
 puddle run ./my-agent.puddle
-puddle run https://github.com/erdium/agents/puddle-maintenance --cwd /path/to/puddle
+puddle run https://github.com/calenard/agents/puddle-maintenance --cwd /path/to/puddle
 ```
 
 For a GitHub URL, puddle downloads the repository archive into a temporary directory, validates and runs the selected agent, then removes the downloaded source when the command exits. Agent data, consent receipts, and sessions still persist under `$PUDDLE_HOME`. See [docs/puddlefiles.md](docs/puddlefiles.md) for authoring, permissions, packaging, and current limitations.
@@ -228,7 +228,7 @@ For a GitHub URL, puddle downloads the repository archive into a temporary direc
 
 Two ways to drive puddle from another program:
 
-- **Go in-process**: import `github.com/erdium/puddle/packages/agent/sdk`. One `Runtime` per project; `Prompt(ctx, text, images)` returns a channel of `Event`. Small example in `examples/sdk/`.
+- **Go in-process**: import `github.com/calenard/puddle/packages/agent/sdk`. One `Runtime` per project; `Prompt(ctx, text, images)` returns a channel of `Event`. Small example in `examples/sdk/`.
 - **Any language, out-of-process**: spawn `puddle rpc` as a subprocess and exchange newline-delimited JSON over its stdin/stdout. Wire format and event schema in [docs/rpc.md](docs/rpc.md). Reference clients live under `examples/rpc/`.
 
 Both interfaces share the same event schema, so transcripts captured by one can be replayed through the other.
@@ -899,7 +899,7 @@ packages/agent/ext/                   public Go SDK for writing extensions (pack
 ```
 
 Downstream consumers can depend on individual packages:
-`go get github.com/erdium/puddle/packages/core` pulls only `core` and its transitive deps (today: `provider`), no agent or TUI code.
+`go get github.com/calenard/puddle/packages/core` pulls only `core` and its transitive deps (today: `provider`), no agent or TUI code.
 
 ## License
 

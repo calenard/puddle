@@ -497,13 +497,13 @@ Arguments after the reference use puddle's normal CLI parser, so model, provider
 Local filesystem directories, local archive paths, and public GitHub agent-directory URLs are accepted. For GitHub, puddle downloads the repository archive into a temporary directory, selects the requested agent subdirectory, validates it, runs it, and removes the downloaded files when the command exits:
 
 ```bash
-puddle run https://github.com/erdium/agents/puddle-maintenance --cwd /path/to/puddle
+puddle run https://github.com/calenard/agents/puddle-maintenance --cwd /path/to/puddle
 ```
 
 Both the short subdirectory form above and a standard GitHub tree URL are supported:
 
 ```bash
-puddle run https://github.com/erdium/agents/tree/main/puddle-maintenance
+puddle run https://github.com/calenard/agents/tree/main/puddle-maintenance
 ```
 
 The short form reads the repository's default branch through GitHub's `HEAD` archive. A tree URL uses the branch or tag in the URL. Private repositories and GitHub references containing `/` are not currently supported. The downloaded source is temporary, but normal agent data, consent receipts, and session transcripts remain under `$PUDDLE_HOME`.
@@ -533,7 +533,7 @@ Packing validates the manifest and directory, then creates a zstd-compressed tar
 ```bash
 puddle inspect ./my-agent
 puddle inspect ./my-agent.puddle
-puddle inspect https://github.com/erdium/agents/puddle-maintenance
+puddle inspect https://github.com/calenard/agents/puddle-maintenance
 ```
 
 Inspection validates and prints the agent's name, version, description, digest, declared permissions, and complete file list. It does not execute the agent.

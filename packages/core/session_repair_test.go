@@ -3,7 +3,7 @@ package core
 import (
 	"testing"
 
-	"github.com/erdium/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/provider"
 )
 
 // TestRepairToolUseResultPairsAppendsStub covers the most common

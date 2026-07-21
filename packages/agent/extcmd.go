@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/erdium/puddle/packages/agent/extensions"
-	"github.com/erdium/puddle/packages/agent/extproto"
-	"github.com/erdium/puddle/packages/ignore"
+	"github.com/calenard/puddle/packages/agent/extensions"
+	"github.com/calenard/puddle/packages/agent/extproto"
+	"github.com/calenard/puddle/packages/ignore"
 )
 
 // runExtCommand dispatches `puddle ext ...` subcommands. Returns

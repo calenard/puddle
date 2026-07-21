@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/erdium/puddle/packages/agent/modes/bot"
-	"github.com/erdium/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/agent/modes/bot"
+	"github.com/calenard/puddle/packages/provider"
 )
 
 // Adapter implements bot.BotAdapter for Telegram.

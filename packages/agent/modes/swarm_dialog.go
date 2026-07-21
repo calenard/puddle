@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/erdium/puddle/packages/agent/swarm"
-	"github.com/erdium/puddle/packages/tui"
+	"github.com/calenard/puddle/packages/agent/swarm"
+	"github.com/calenard/puddle/packages/tui"
 )
 
 // swarmDialog is the dashboard shown by /swarm (no argument) and

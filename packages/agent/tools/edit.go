@@ -8,8 +8,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/erdium/puddle/packages/core"
-	"github.com/erdium/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/core"
+	"github.com/calenard/puddle/packages/provider"
 )
 
 // EditTool applies one or more exact-match replacements to a file.

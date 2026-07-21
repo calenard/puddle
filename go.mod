@@ -1,4 +1,4 @@
-module github.com/erdium/puddle
+module github.com/calenard/puddle
 
 go 1.25.0
 

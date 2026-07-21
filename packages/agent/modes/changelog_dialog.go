@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/erdium/puddle/packages/tui"
+	"github.com/calenard/puddle/packages/tui"
 )
 
 // changelogDialog is the one-shot release-notes overlay shown the

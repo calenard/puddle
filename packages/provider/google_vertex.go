@@ -52,7 +52,7 @@ import (
 	"sync"
 	"time"
 
-	providerauth "github.com/erdium/puddle/packages/provider/auth"
+	providerauth "github.com/calenard/puddle/packages/provider/auth"
 )
 
 type vertexConfig struct {

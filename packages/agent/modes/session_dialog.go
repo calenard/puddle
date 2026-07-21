@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/erdium/puddle/packages/core"
-	"github.com/erdium/puddle/packages/tui"
+	"github.com/calenard/puddle/packages/core"
+	"github.com/calenard/puddle/packages/tui"
 )
 
 // sessionDialog is the inline picker shown when the user runs /sessions.

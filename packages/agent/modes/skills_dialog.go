@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/erdium/puddle/packages/agent/skills"
-	"github.com/erdium/puddle/packages/tui"
+	"github.com/calenard/puddle/packages/agent/skills"
+	"github.com/calenard/puddle/packages/tui"
 )
 
 // skillsDialog lists every discovered skill and lets the user view

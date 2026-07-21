@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/erdium/puddle/packages/agent/modes/bot"
+	"github.com/calenard/puddle/packages/agent/modes/bot"
 )
 
 // PIDPath returns the location of the bot's pid file.

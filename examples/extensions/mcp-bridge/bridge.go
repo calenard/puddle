@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/erdium/puddle/packages/agent/ext"
+	"github.com/calenard/puddle/packages/agent/ext"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"os"
 
-	"github.com/erdium/puddle/packages/agent/extproto"
+	"github.com/calenard/puddle/packages/agent/extproto"
 	"path/filepath"
 	"runtime"
 	"strings"

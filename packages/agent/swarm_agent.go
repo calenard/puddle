@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/erdium/puddle/packages/agent/modes"
-	"github.com/erdium/puddle/packages/agent/swarm"
-	"github.com/erdium/puddle/packages/core"
-	"github.com/erdium/puddle/packages/provider"
+	"github.com/calenard/puddle/packages/agent/modes"
+	"github.com/calenard/puddle/packages/agent/swarm"
+	"github.com/calenard/puddle/packages/core"
+	"github.com/calenard/puddle/packages/provider"
 )
 
 // runSwarmAgentMode is the daemon-mode entry point used by every
